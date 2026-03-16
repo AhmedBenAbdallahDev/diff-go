@@ -8,35 +8,46 @@ Paste two texts and see differences highlighted instantly.
 - **Backend:** Go 1.22 (static file server)
 - **Frontend:** Vanilla HTML/CSS/JS + [diff-match-patch](https://github.com/google/diff-match-patch)
 
-## Run locally
+## Run locally (Go)
 
 ```bash
 go run main.go
 # open http://localhost:8080
 ```
 
-## Build
+## Run with Docker (recommended)
 
 ```bash
-go build -o diff-ashref-tn .
-./diff-ashref-tn
+docker compose up -d
+# open http://localhost:8080
 ```
 
-## Deploy (Linux VPS)
+To stop:
+```bash
+docker compose down
+```
+
+To rebuild after changes:
+```bash
+docker compose up -d --build
+```
+
+## Deploy to VPS with Docker
 
 ```bash
-# 1. Build for Linux on your machine
-GOOS=linux GOARCH=amd64 go build -o diff-ashref-tn .
+# 1. SSH into your VPS and clone the repo
+git clone https://github.com/AhmedBenAbdallahDev/diff-ashref-tn.git
+cd diff-ashref-tn
 
-# 2. Upload to VPS
-scp diff-ashref-tn user@yourserver:/opt/diff-ashref-tn/
-scp -r static user@yourserver:/opt/diff-ashref-tn/
+# 2. Build and start
+docker compose up -d --build
 
-# 3. Install systemd service (see deploy/diff-ashref-tn.service)
-sudo cp deploy/diff-ashref-tn.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now diff-ashref-tn
+# 3. Check it's running
+docker ps
+curl http://localhost:8080
 ```
+
+That's it. Docker handles everything — no Go install needed on the server.
 
 ## Environment Variables
 

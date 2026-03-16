@@ -1,0 +1,6 @@
+.git
+*.exe
+*.log
+.env
+.env.local
+deploy/

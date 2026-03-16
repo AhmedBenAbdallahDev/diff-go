@@ -1,0 +1,9 @@
+services:
+  diff:
+    build: .
+    container_name: diff-ashref-tn
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
