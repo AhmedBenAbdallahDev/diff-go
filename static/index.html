@@ -4,40 +4,126 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>diff — ashref.tn</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <header>
-    <div class="logo">⚡ diff<span>.ashref.tn</span></div>
-    <div class="actions">
-      <button id="clearBtn" title="Clear both panes">Clear</button>
-      <button id="swapBtn" title="Swap left and right">Swap ⇄</button>
-    </div>
-  </header>
 
-  <main>
-    <div class="pane" id="paneLeft">
-      <div class="pane-header">
-        <span>Original</span>
-        <button class="copy-btn" data-target="left" title="Copy">⎘</button>
+  <!-- ── Welcome Overlay ── -->
+  <div id="welcome" class="welcome">
+    <div class="welcome-bg"></div>
+    <div class="welcome-content">
+      <div class="welcome-badge">OPEN SOURCE</div>
+      <h1>diff<span class="accent">.ashref.tn</span></h1>
+      <p class="welcome-sub">Compare text, files, or folders — see every change, instantly.</p>
+      <div class="welcome-cards">
+        <button class="wcard" data-mode="text">
+          <div class="wcard-icon">✍️</div>
+          <div class="wcard-title">Paste Text</div>
+          <div class="wcard-desc">Side-by-side text comparison with real-time highlighting</div>
+        </button>
+        <button class="wcard" data-mode="file">
+          <div class="wcard-icon">📄</div>
+          <div class="wcard-title">Upload Files</div>
+          <div class="wcard-desc">Drop or pick two files and diff them instantly</div>
+        </button>
+        <button class="wcard" data-mode="folder">
+          <div class="wcard-icon">📁</div>
+          <div class="wcard-title">Compare Folders</div>
+          <div class="wcard-desc">Diff two directories — see what changed at a glance</div>
+        </button>
       </div>
-      <textarea id="left" placeholder="Paste original text here…" spellcheck="false"></textarea>
-    </div>
-
-    <div class="divider" id="divider"></div>
-
-    <div class="pane" id="paneRight">
-      <div class="pane-header">
-        <span>Modified</span>
-        <button class="copy-btn" data-target="right" title="Copy">⎘</button>
+      <div class="welcome-keys">
+        <kbd>Ctrl</kbd>+<kbd>1</kbd> Text &nbsp;
+        <kbd>Ctrl</kbd>+<kbd>2</kbd> File &nbsp;
+        <kbd>Ctrl</kbd>+<kbd>3</kbd> Folder
       </div>
-      <textarea id="right" placeholder="Paste modified text here…" spellcheck="false"></textarea>
     </div>
-  </main>
+  </div>
 
-  <div id="diffBar">
-    <span id="diffStats"></span>
-    <div id="diffOutput"></div>
+  <!-- ── Main App ── -->
+  <div id="app" class="app hidden">
+
+    <!-- Header -->
+    <header>
+      <div class="header-left">
+        <div class="logo" id="logoBtn">⚡ diff<span class="accent">.ashref.tn</span></div>
+        <nav class="tabs">
+          <button class="tab active" data-mode="text">Text</button>
+          <button class="tab" data-mode="file">File</button>
+          <button class="tab" data-mode="folder">Folder</button>
+        </nav>
+      </div>
+      <div class="header-right">
+        <label class="opt" title="Ignore leading/trailing whitespace">
+          <input type="checkbox" id="ignoreWS" /> Ignore spaces
+        </label>
+        <button id="swapBtn" class="hbtn" title="Swap sides (Ctrl+Shift+S)">⇄ Swap</button>
+        <button id="clearBtn" class="hbtn" title="Clear all (Ctrl+Shift+X)">✕ Clear</button>
+      </div>
+    </header>
+
+    <!-- ── Text / File Mode ── -->
+    <div id="editorView" class="editor-view">
+      <div class="panel" id="panelLeft">
+        <div class="panel-head">
+          <span class="panel-label">Original</span>
+          <div class="panel-actions">
+            <label class="picker-btn" title="Pick file">
+              📎 Open<input type="file" id="fileLeft" />
+            </label>
+            <button class="act-btn copy-btn" data-side="left" title="Copy text">⎘</button>
+          </div>
+        </div>
+        <div class="drop-zone" id="dropLeft" data-side="left">
+          <textarea id="textLeft" spellcheck="false" placeholder="Paste text or drop a file here…"></textarea>
+          <div class="drop-overlay"><span>Drop file here</span></div>
+        </div>
+      </div>
+
+      <div class="gutter" id="gutter"></div>
+
+      <div class="panel" id="panelRight">
+        <div class="panel-head">
+          <span class="panel-label">Modified</span>
+          <div class="panel-actions">
+            <label class="picker-btn" title="Pick file">
+              📎 Open<input type="file" id="fileRight" />
+            </label>
+            <button class="act-btn copy-btn" data-side="right" title="Copy text">⎘</button>
+          </div>
+        </div>
+        <div class="drop-zone" id="dropRight" data-side="right">
+          <textarea id="textRight" spellcheck="false" placeholder="Paste text or drop a file here…"></textarea>
+          <div class="drop-overlay"><span>Drop file here</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Folder Mode ── -->
+    <div id="folderView" class="folder-view hidden">
+      <div class="folder-bar">
+        <input type="text" id="folderLeft" placeholder="/path/to/folder-a" />
+        <button id="compareFoldersBtn" class="compare-btn">Compare</button>
+        <input type="text" id="folderRight" placeholder="/path/to/folder-b" />
+      </div>
+      <div id="folderResults" class="folder-results"></div>
+    </div>
+
+    <!-- ── Diff Output ── -->
+    <div id="diffPanel" class="diff-panel">
+      <div class="diff-bar">
+        <span id="diffStats" class="diff-stats"></span>
+        <div class="diff-toggles">
+          <button class="dtgl active" data-view="split">Split</button>
+          <button class="dtgl" data-view="unified">Unified</button>
+        </div>
+      </div>
+      <div id="diffContent" class="diff-content"></div>
+    </div>
+
   </div>
 
   <script src="diff_match_patch.js"></script>
