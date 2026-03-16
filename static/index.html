@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>diff — ashref.tn</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <div class="logo">⚡ diff<span>.ashref.tn</span></div>
+    <div class="actions">
+      <button id="clearBtn" title="Clear both panes">Clear</button>
+      <button id="swapBtn" title="Swap left and right">Swap ⇄</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="pane" id="paneLeft">
+      <div class="pane-header">
+        <span>Original</span>
+        <button class="copy-btn" data-target="left" title="Copy">⎘</button>
+      </div>
+      <textarea id="left" placeholder="Paste original text here…" spellcheck="false"></textarea>
+    </div>
+
+    <div class="divider" id="divider"></div>
+
+    <div class="pane" id="paneRight">
+      <div class="pane-header">
+        <span>Modified</span>
+        <button class="copy-btn" data-target="right" title="Copy">⎘</button>
+      </div>
+      <textarea id="right" placeholder="Paste modified text here…" spellcheck="false"></textarea>
+    </div>
+  </main>
+
+  <div id="diffBar">
+    <span id="diffStats"></span>
+    <div id="diffOutput"></div>
+  </div>
+
+  <script src="diff_match_patch.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

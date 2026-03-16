@@ -1,0 +1,12 @@
+# Binaries
+diff-ashref-tn
+diff-ashref-tn.exe
+*.exe
+
+# Env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db

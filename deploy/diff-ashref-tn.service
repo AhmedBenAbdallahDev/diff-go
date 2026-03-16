@@ -1,0 +1,15 @@
+[Unit]
+Description=diff-ashref-tn - Real-time diff viewer
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/diff-ashref-tn
+ExecStart=/opt/diff-ashref-tn/diff-ashref-tn
+Environment=PORT=8080
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

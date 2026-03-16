@@ -1,0 +1,197 @@
+/* ── Reset & Base ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --border: #30363d;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --accent: #58a6ff;
+  --add: #1a4a2e;
+  --add-text: #3fb950;
+  --del: #4a1a1a;
+  --del-text: #f85149;
+  --eq: #161b22;
+  --radius: 6px;
+  --font-mono: "Fira Code", "Cascadia Code", "Consolas", monospace;
+}
+
+html, body { height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  color: var(--text);
+}
+
+.logo span { color: var(--accent); }
+
+.actions { display: flex; gap: 8px; }
+
+.actions button, .copy-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.actions button:hover, .copy-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ── Main split panes ── */
+main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  gap: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.copy-btn {
+  padding: 2px 7px;
+  font-size: 14px;
+  border: none;
+}
+
+textarea {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  outline: none;
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+textarea::placeholder { color: var(--muted); opacity: 0.5; }
+
+/* ── Draggable divider ── */
+#divider {
+  width: 4px;
+  background: var(--border);
+  cursor: col-resize;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+#divider:hover, #divider.dragging { background: var(--accent); }
+
+/* ── Diff output bar ── */
+#diffBar {
+  flex-shrink: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  max-height: 35vh;
+  overflow-y: auto;
+  padding: 0;
+}
+
+#diffStats {
+  display: block;
+  padding: 6px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+#diffOutput {
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+/* diff highlight spans */
+.diff-ins {
+  background: var(--add);
+  color: var(--add-text);
+  border-radius: 2px;
+  padding: 1px 0;
+}
+
+.diff-del {
+  background: var(--del);
+  color: var(--del-text);
+  text-decoration: line-through;
+  border-radius: 2px;
+  padding: 1px 0;
+}
+
+.diff-eq { color: var(--muted); }
+
+/* empty state */
+#diffOutput.empty {
+  color: var(--muted);
+  opacity: 0.4;
+  font-style: italic;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  main { flex-direction: column; }
+  #divider { width: 100%; height: 4px; cursor: row-resize; }
+}
