@@ -763,48 +763,183 @@ body {
   cursor: not-allowed;
 }
 
-/* Text Input */
-.text-input-container {
+/* Real-time Diff Text Input */
+.realtime-badge {
+  background: #238636;
+  color: white;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.clear-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-btn:hover {
+  background: var(--hover-bg);
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+
+.diff-live-container {
   flex: 1;
   display: flex;
-  gap: 0;
   overflow: hidden;
 }
 
-.text-panel {
+.diff-live-panel {
   flex: 1;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
+  min-width: 0;
 }
 
-.text-panel:last-child {
+.diff-live-panel:last-child {
   border-right: none;
 }
 
-.text-panel label {
-  padding: 10px 16px;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
   background: var(--hunk-bg);
   border-bottom: 1px solid var(--border);
 }
 
-.text-panel textarea {
-  flex: 1;
-  background: var(--bg);
+.panel-label {
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text);
-  border: none;
-  padding: 16px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
-  resize: none;
-  outline: none;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.text-panel textarea::placeholder {
+.line-count {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.editor-wrapper {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.diff-textarea {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  resize: none;
+  outline: none;
+  z-index: 2;
+  caret-color: var(--text);
+  white-space: pre;
+  overflow: auto;
+}
+
+.diff-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.diff-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre;
+  overflow: auto;
+  pointer-events: none;
+  z-index: 1;
+  color: transparent;
+}
+
+.diff-overlay .line {
+  display: block;
+  min-height: 20px;
+}
+
+.diff-overlay .line-add {
+  background: var(--add-bg);
+  color: var(--add-text);
+}
+
+.diff-overlay .line-del {
+  background: var(--del-bg);
+  color: var(--del-text);
+}
+
+.diff-overlay .line-same {
+  background: transparent;
+}
+
+.diff-overlay .char-add {
+  background: var(--add-word-bg);
+  border-radius: 2px;
+}
+
+.diff-overlay .char-del {
+  background: var(--del-word-bg);
+  border-radius: 2px;
+}
+
+.diff-stats-bar {
+  display: flex;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-family: var(--font-mono);
+}
+
+.diff-stats-bar .stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-stats-bar .additions {
+  color: var(--add-text);
+}
+
+.diff-stats-bar .deletions {
+  color: var(--del-text);
+}
+
+.diff-stats-bar .unchanged {
   color: var(--text-muted);
 }
 

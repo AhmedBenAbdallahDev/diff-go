@@ -4,12 +4,6 @@
 (function () {
   "use strict";
 
-  // --- State ---
-  let currentFiles = [];
-  let viewMode = "split"; // "split" or "unified"
-  let activeFile = null;
-  let currentMode = null; // "text", "file", "folder"
-
   // --- Auth Token ---
   const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
 
@@ -21,22 +15,27 @@
   const diffView = document.getElementById("diff-view");
   const folderResultView = document.getElementById("folder-result-view");
 
-  const btnSplit = document.getElementById("btn-split");
-  const btnUnified = document.getElementById("btn-unified");
-  const fileTreeContent = document.getElementById("file-tree-content");
-  const diffContent = document.getElementById("diff-content");
+  // Text diff elements
+  const textLeft = document.getElementById("text-left");
+  const textRight = document.getElementById("text-right");
+  const diffLeftOverlay = document.getElementById("diff-left-overlay");
+  const diffRightOverlay = document.getElementById("diff-right-overlay");
+  const leftLineCount = document.getElementById("left-line-count");
+  const rightLineCount = document.getElementById("right-line-count");
+  const statAdditions = document.getElementById("stat-additions");
+  const statDeletions = document.getElementById("stat-deletions");
+  const statUnchanged = document.getElementById("stat-unchanged");
 
   // --- View Management ---
 
   function showView(viewId) {
     const views = [landing, textInputView, fileInputView, folderInputView, diffView, folderResultView];
     for (const view of views) {
-      view.hidden = view.id !== viewId;
+      if (view) view.hidden = view.id !== viewId;
     }
   }
 
   function goToLanding() {
-    currentMode = null;
     showView("landing");
   }
 
@@ -45,12 +44,12 @@
   document.querySelectorAll(".mode-card").forEach(card => {
     card.addEventListener("click", () => {
       const mode = card.dataset.mode;
-      currentMode = mode;
       if (mode === "text") {
         showView("text-input-view");
-        document.getElementById("text-left").value = "";
-        document.getElementById("text-right").value = "";
-        document.getElementById("text-left").focus();
+        textLeft.value = "";
+        textRight.value = "";
+        updateDiff();
+        textLeft.focus();
       } else if (mode === "file") {
         showView("file-input-view");
         resetFileInputs();
@@ -68,46 +67,245 @@
   document.getElementById("text-back").addEventListener("click", goToLanding);
   document.getElementById("file-back").addEventListener("click", goToLanding);
   document.getElementById("folder-back").addEventListener("click", goToLanding);
-  document.getElementById("diff-back").addEventListener("click", () => {
-    if (currentMode === "text") showView("text-input-view");
-    else if (currentMode === "file") showView("file-input-view");
-    else if (currentMode === "folder") showView("folder-input-view");
-    else goToLanding();
+
+  // Clear button
+  document.getElementById("text-clear").addEventListener("click", () => {
+    textLeft.value = "";
+    textRight.value = "";
+    updateDiff();
   });
-  document.getElementById("folder-result-back").addEventListener("click", () => showView("folder-input-view"));
 
-  // --- Text Compare ---
+  // ========================================
+  // REAL-TIME DIFF ENGINE
+  // ========================================
 
-  document.getElementById("text-compare").addEventListener("click", async () => {
-    const left = document.getElementById("text-left").value;
-    const right = document.getElementById("text-right").value;
+  function splitLines(text) {
+    if (!text) return [];
+    return text.split('\n');
+  }
 
-    if (!left && !right) {
-      alert("Please enter some text to compare.");
-      return;
-    }
+  // Simple LCS-based diff
+  function computeDiff(oldLines, newLines) {
+    const m = oldLines.length;
+    const n = newLines.length;
 
-    try {
-      const resp = await fetch("/api/compare-text", {
-        method: "POST",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ left, right, leftName: "Original", rightName: "Modified" })
-      });
-
-      if (!resp.ok) {
-        throw new Error(await resp.text());
+    // Build LCS table
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (oldLines[i - 1] === newLines[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
       }
-
-      const data = await resp.json();
-      currentFiles = data.files || [];
-      document.getElementById("diff-title").textContent = "Text Comparison";
-      showDiffResult();
-    } catch (err) {
-      alert("Error comparing text: " + err.message);
     }
-  });
 
-  // --- File Compare ---
+    // Backtrack to find diff
+    const result = [];
+    let i = m, j = n;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+        result.unshift({ type: 'same', oldIdx: i - 1, newIdx: j - 1, text: oldLines[i - 1] });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        result.unshift({ type: 'add', newIdx: j - 1, text: newLines[j - 1] });
+        j--;
+      } else {
+        result.unshift({ type: 'del', oldIdx: i - 1, text: oldLines[i - 1] });
+        i--;
+      }
+    }
+
+    return result;
+  }
+
+  // Character-level diff for modified lines
+  function charDiff(oldStr, newStr) {
+    const oldChars = oldStr.split('');
+    const newChars = newStr.split('');
+    const m = oldChars.length;
+    const n = newChars.length;
+
+    // Build LCS table
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (oldChars[i - 1] === newChars[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1] + 1;
+        } else {
+          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+      }
+    }
+
+    // Backtrack
+    const oldResult = [];
+    const newResult = [];
+    let i = m, j = n;
+    
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldChars[i - 1] === newChars[j - 1]) {
+        oldResult.unshift({ char: oldChars[i - 1], type: 'same' });
+        newResult.unshift({ char: newChars[j - 1], type: 'same' });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        newResult.unshift({ char: newChars[j - 1], type: 'add' });
+        j--;
+      } else {
+        oldResult.unshift({ char: oldChars[i - 1], type: 'del' });
+        i--;
+      }
+    }
+
+    return { oldResult, newResult };
+  }
+
+  function escapeHtml(str) {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function renderCharDiff(charDiffResult, type) {
+    let html = '';
+    for (const item of charDiffResult) {
+      const escaped = escapeHtml(item.char);
+      if (item.type === 'same') {
+        html += escaped;
+      } else if (item.type === type) {
+        html += `<span class="char-${type}">${escaped}</span>`;
+      }
+    }
+    return html;
+  }
+
+  function updateDiff() {
+    const leftText = textLeft.value;
+    const rightText = textRight.value;
+
+    const leftLines = splitLines(leftText);
+    const rightLines = splitLines(rightText);
+
+    // Update line counts
+    leftLineCount.textContent = `${leftLines.length} line${leftLines.length !== 1 ? 's' : ''}`;
+    rightLineCount.textContent = `${rightLines.length} line${rightLines.length !== 1 ? 's' : ''}`;
+
+    // Compute diff
+    const diff = computeDiff(leftLines, rightLines);
+
+    // Build overlay HTML for both sides
+    let leftHtml = '';
+    let rightHtml = '';
+    let additions = 0;
+    let deletions = 0;
+    let unchanged = 0;
+
+    // Group consecutive del/add for inline comparison
+    let i = 0;
+    while (i < diff.length) {
+      const item = diff[i];
+
+      if (item.type === 'same') {
+        leftHtml += `<span class="line line-same">${escapeHtml(item.text)}\n</span>`;
+        rightHtml += `<span class="line line-same">${escapeHtml(item.text)}\n</span>`;
+        unchanged++;
+        i++;
+      } else if (item.type === 'del') {
+        // Collect consecutive deletions
+        const dels = [];
+        while (i < diff.length && diff[i].type === 'del') {
+          dels.push(diff[i]);
+          i++;
+        }
+        // Collect consecutive additions
+        const adds = [];
+        while (i < diff.length && diff[i].type === 'add') {
+          adds.push(diff[i]);
+          i++;
+        }
+
+        // Pair them for character-level diff
+        const maxLen = Math.max(dels.length, adds.length);
+        for (let j = 0; j < maxLen; j++) {
+          const del = dels[j];
+          const add = adds[j];
+
+          if (del && add) {
+            // Both exist - do character diff
+            const { oldResult, newResult } = charDiff(del.text, add.text);
+            leftHtml += `<span class="line line-del">${renderCharDiff(oldResult, 'del')}\n</span>`;
+            rightHtml += `<span class="line line-add">${renderCharDiff(newResult, 'add')}\n</span>`;
+            deletions++;
+            additions++;
+          } else if (del) {
+            // Only deletion
+            leftHtml += `<span class="line line-del">${escapeHtml(del.text)}\n</span>`;
+            rightHtml += `<span class="line line-same">\n</span>`;
+            deletions++;
+          } else if (add) {
+            // Only addition
+            leftHtml += `<span class="line line-same">\n</span>`;
+            rightHtml += `<span class="line line-add">${escapeHtml(add.text)}\n</span>`;
+            additions++;
+          }
+        }
+      } else if (item.type === 'add') {
+        // Standalone add (not preceded by del)
+        leftHtml += `<span class="line line-same">\n</span>`;
+        rightHtml += `<span class="line line-add">${escapeHtml(item.text)}\n</span>`;
+        additions++;
+        i++;
+      }
+    }
+
+    // Update overlays
+    diffLeftOverlay.innerHTML = leftHtml;
+    diffRightOverlay.innerHTML = rightHtml;
+
+    // Update stats
+    statAdditions.textContent = `+${additions}`;
+    statDeletions.textContent = `−${deletions}`;
+    statUnchanged.textContent = `${unchanged} unchanged`;
+
+    // Sync scroll
+    syncScroll();
+  }
+
+  // Sync scroll between textareas and overlays
+  function syncScroll() {
+    const syncLeft = () => {
+      diffLeftOverlay.scrollTop = textLeft.scrollTop;
+      diffLeftOverlay.scrollLeft = textLeft.scrollLeft;
+    };
+    const syncRight = () => {
+      diffRightOverlay.scrollTop = textRight.scrollTop;
+      diffRightOverlay.scrollLeft = textRight.scrollLeft;
+    };
+    
+    textLeft.addEventListener('scroll', syncLeft);
+    textRight.addEventListener('scroll', syncRight);
+  }
+
+  // Debounce for performance
+  let diffTimeout = null;
+  function debouncedUpdateDiff() {
+    if (diffTimeout) clearTimeout(diffTimeout);
+    diffTimeout = setTimeout(updateDiff, 50);
+  }
+
+  // Listen for input
+  textLeft.addEventListener('input', debouncedUpdateDiff);
+  textRight.addEventListener('input', debouncedUpdateDiff);
+
+  // Initial sync scroll setup
+  syncScroll();
+
+  // ========================================
+  // FILE COMPARE
+  // ========================================
 
   let leftFile = null;
   let rightFile = null;
@@ -119,7 +317,6 @@
     document.getElementById("file-right").value = "";
     document.getElementById("file-left-name").textContent = "";
     document.getElementById("file-right-name").textContent = "";
-    document.querySelectorAll(".file-drop-zone").forEach(z => z.classList.remove("dragover"));
   }
 
   function setupDropZone(dropId, inputId, nameId, setFile) {
@@ -166,31 +363,19 @@
       return;
     }
 
-    try {
-      const formData = new FormData();
-      formData.append("left", leftFile);
-      formData.append("right", rightFile);
+    // Read files and show in text compare view
+    const leftText = await leftFile.text();
+    const rightText = await rightFile.text();
 
-      const resp = await fetch("/api/compare-files", {
-        method: "POST",
-        headers: authHeaders,
-        body: formData
-      });
-
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
-
-      const data = await resp.json();
-      currentFiles = data.files || [];
-      document.getElementById("diff-title").textContent = `${leftFile.name} vs ${rightFile.name}`;
-      showDiffResult();
-    } catch (err) {
-      alert("Error comparing files: " + err.message);
-    }
+    textLeft.value = leftText;
+    textRight.value = rightText;
+    showView("text-input-view");
+    updateDiff();
   });
 
-  // --- Folder Compare ---
+  // ========================================
+  // FOLDER COMPARE
+  // ========================================
 
   document.getElementById("folder-compare").addEventListener("click", async () => {
     const leftPath = document.getElementById("folder-left").value.trim();
@@ -217,6 +402,10 @@
     } catch (err) {
       alert("Error comparing folders: " + err.message);
     }
+  });
+
+  document.getElementById("folder-result-back").addEventListener("click", () => {
+    showView("folder-input-view");
   });
 
   function showFolderResult(data) {
@@ -255,461 +444,9 @@
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   }
 
-  // --- Diff Result Display ---
+  // ========================================
+  // INIT
+  // ========================================
 
-  function showDiffResult() {
-    showView("diff-view");
-    renderFileTree(currentFiles);
-    renderDiffContent(currentFiles);
-  }
-
-  // --- File Tree ---
-
-  function buildFileTree(files) {
-    const root = { name: "", children: new Map(), files: [] };
-
-    for (const file of files) {
-      const path =
-        file.status === "deleted" ? file.oldName : file.newName || file.oldName;
-      const parts = path.split("/");
-      let current = root;
-
-      for (let i = 0; i < parts.length - 1; i++) {
-        const dir = parts[i];
-        if (!current.children.has(dir)) {
-          current.children.set(dir, { name: dir, children: new Map(), files: [] });
-        }
-        current = current.children.get(dir);
-      }
-
-      current.files.push({
-        name: parts[parts.length - 1],
-        path: path,
-        status: file.status,
-      });
-    }
-
-    return root;
-  }
-
-  function renderFileTree(files) {
-    fileTreeContent.innerHTML = "";
-    if (!files || files.length === 0) {
-      fileTreeContent.innerHTML =
-        '<div class="loading">No differences found</div>';
-      return;
-    }
-    const tree = buildFileTree(files);
-    const fragment = document.createDocumentFragment();
-    renderTreeNode(tree, fragment, 0, true);
-    fileTreeContent.appendChild(fragment);
-  }
-
-  function renderTreeNode(node, parent, depth, isRoot) {
-    // Render folders sorted alphabetically
-    const sortedChildren = Array.from(node.children.entries()).sort((a, b) =>
-      a[0].localeCompare(b[0])
-    );
-
-    for (const [, child] of sortedChildren) {
-      const folder = document.createElement("div");
-      folder.className = "tree-folder";
-
-      const label = document.createElement("div");
-      label.className = "tree-folder-label";
-      label.style.setProperty("--indent-pad", `${12 + depth * 16}px`);
-
-      label.innerHTML = `
-        <span class="arrow">&#9660;</span>
-        <span class="folder-icon">&#128193;</span>
-        <span class="folder-name">${escapeHtml(child.name)}</span>
-      `;
-
-      label.addEventListener("click", () => {
-        folder.classList.toggle("collapsed");
-      });
-
-      folder.appendChild(label);
-
-      const children = document.createElement("div");
-      children.className = "tree-folder-children";
-      renderTreeNode(child, children, depth + 1, false);
-      folder.appendChild(children);
-
-      parent.appendChild(folder);
-    }
-
-    // Render files sorted alphabetically
-    const sortedFiles = [...node.files].sort((a, b) =>
-      a.name.localeCompare(b.name)
-    );
-
-    for (const file of sortedFiles) {
-      const el = document.createElement("div");
-      el.className = "tree-file";
-      el.dataset.path = file.path;
-      el.style.setProperty("--indent-pad", `${(isRoot ? 12 : 28) + depth * 16}px`);
-
-      const statusChar = {
-        added: "+",
-        modified: "M",
-        deleted: "\u2212",
-        renamed: "R",
-        unchanged: "=",
-      }[file.status] || "?";
-
-      el.innerHTML = `
-        <span class="status-indicator ${file.status}">${statusChar}</span>
-        <span class="file-name" title="${escapeHtml(file.path)}">${escapeHtml(file.name)}</span>
-      `;
-
-      el.addEventListener("click", () => {
-        scrollToFile(file.path);
-        setActiveTreeFile(file.path);
-      });
-
-      parent.appendChild(el);
-    }
-  }
-
-  function setActiveTreeFile(path) {
-    activeFile = path;
-    const allFiles = fileTreeContent.querySelectorAll(".tree-file");
-    for (const f of allFiles) {
-      f.classList.toggle("active", f.dataset.path === path);
-    }
-  }
-
-  // --- Diff Content ---
-
-  function renderDiffContent(files) {
-    diffContent.innerHTML = "";
-    if (!files || files.length === 0) {
-      diffContent.innerHTML = '<div class="loading">No differences found - files are identical!</div>';
-      return;
-    }
-    const fragment = document.createDocumentFragment();
-    for (const file of files) {
-      fragment.appendChild(renderFileSection(file));
-    }
-    diffContent.appendChild(fragment);
-    adjustSplitTableWidths();
-  }
-
-  function renderFileSection(file) {
-    const section = document.createElement("div");
-    section.className = "file-section";
-    const path =
-      file.status === "deleted" ? file.oldName : file.newName || file.oldName;
-    section.id = `file-${cssId(path)}`;
-
-    // Count additions and deletions
-    let additions = 0;
-    let deletions = 0;
-    if (file.hunks) {
-      for (const hunk of file.hunks) {
-        for (const line of hunk.lines) {
-          if (line.type === "add") additions++;
-          if (line.type === "delete") deletions++;
-        }
-      }
-    }
-
-    // File header
-    const header = document.createElement("div");
-    header.className = "file-header";
-
-    const displayPath =
-      file.status === "renamed"
-        ? `${file.oldName} \u2192 ${file.newName}`
-        : path;
-
-    let statsHtml = "";
-    if (!file.isBinary) {
-      const parts = [];
-      if (additions > 0) parts.push(`<span class="additions">+${additions}</span>`);
-      if (deletions > 0) parts.push(`<span class="deletions">&minus;${deletions}</span>`);
-      if (parts.length > 0) {
-        statsHtml = `<span class="change-stats">${parts.join(" ")}</span>`;
-      }
-    }
-
-    header.innerHTML = `
-      <span class="collapse-arrow">&#9660;</span>
-      <span class="status-badge ${file.status}">${file.status}</span>
-      <span class="file-path">${escapeHtml(displayPath)}</span>
-      ${statsHtml}
-    `;
-
-    header.addEventListener("click", () => {
-      section.classList.toggle("collapsed");
-    });
-
-    section.appendChild(header);
-
-    // File body
-    const body = document.createElement("div");
-    body.className = "file-body";
-
-    if (file.isBinary) {
-      const binaryText = file.status === "unchanged" 
-        ? "Binary files are identical"
-        : "Binary files differ";
-      body.innerHTML = `<div class="binary-notice">${binaryText}</div>`;
-    } else if (file.status === "unchanged") {
-      body.innerHTML = '<div class="binary-notice">Files are identical</div>';
-    } else if (file.hunks && file.hunks.length > 0) {
-      const table = document.createElement("table");
-      table.className = `diff-table ${viewMode}`;
-
-      if (viewMode === "split") {
-        const colgroup = document.createElement("colgroup");
-        colgroup.innerHTML = `
-          <col style="width: 50px">
-          <col style="width: calc(50% - 50px)">
-          <col style="width: 1px">
-          <col style="width: 50px">
-          <col style="width: calc(50% - 50px)">
-        `;
-        table.appendChild(colgroup);
-      }
-
-      const tbody = document.createElement("tbody");
-      for (const hunk of file.hunks) {
-        if (viewMode === "split") {
-          renderHunkSplit(hunk, tbody);
-        } else {
-          renderHunkUnified(hunk, tbody);
-        }
-      }
-      table.appendChild(tbody);
-      body.appendChild(table);
-    }
-
-    section.appendChild(body);
-    return section;
-  }
-
-  // --- Hunk Rendering: Split View ---
-
-  function renderHunkSplit(hunk, tbody) {
-    // Hunk header row
-    const headerRow = document.createElement("tr");
-    headerRow.className = "hunk-header";
-    const headerCell = document.createElement("td");
-    headerCell.colSpan = 5;
-    headerCell.textContent = hunk.header;
-    headerRow.appendChild(headerCell);
-    tbody.appendChild(headerRow);
-
-    // Group lines into pairs for split view
-    const lines = hunk.lines;
-    let i = 0;
-
-    while (i < lines.length) {
-      const line = lines[i];
-
-      if (line.type === "context") {
-        // Context: show on both sides
-        const tr = document.createElement("tr");
-        tr.className = "line-context";
-        tr.innerHTML = `
-          <td class="line-num old-num">${line.oldNum || ""}</td>
-          <td class="line-content old-content">${escapeHtml(line.content)}</td>
-          <td class="split-divider"></td>
-          <td class="line-num new-num">${line.newNum || ""}</td>
-          <td class="line-content new-content">${escapeHtml(line.content)}</td>
-        `;
-        tbody.appendChild(tr);
-        i++;
-      } else if (line.type === "delete") {
-        // Collect consecutive deletes
-        const deletes = [];
-        while (i < lines.length && lines[i].type === "delete") {
-          deletes.push(lines[i]);
-          i++;
-        }
-        // Collect consecutive adds after deletes
-        const adds = [];
-        while (i < lines.length && lines[i].type === "add") {
-          adds.push(lines[i]);
-          i++;
-        }
-        // Pair them side by side
-        const maxLen = Math.max(deletes.length, adds.length);
-        for (let j = 0; j < maxLen; j++) {
-          const del = j < deletes.length ? deletes[j] : null;
-          const add = j < adds.length ? adds[j] : null;
-          const tr = document.createElement("tr");
-
-          if (del && add) {
-            // Modification: delete on left, add on right
-            tr.innerHTML = `
-              <td class="line-num old-num old-del">${del.oldNum || ""}</td>
-              <td class="line-content old-content old-del">${escapeHtml(del.content)}</td>
-              <td class="split-divider"></td>
-              <td class="line-num new-num new-add">${add.newNum || ""}</td>
-              <td class="line-content new-content new-add">${escapeHtml(add.content)}</td>
-            `;
-          } else if (del) {
-            // Delete only
-            tr.innerHTML = `
-              <td class="line-num old-num old-del">${del.oldNum || ""}</td>
-              <td class="line-content old-content old-del">${escapeHtml(del.content)}</td>
-              <td class="split-divider"></td>
-              <td class="line-num new-num empty-cell"></td>
-              <td class="line-content new-content empty-cell"></td>
-            `;
-          } else {
-            // Add only
-            tr.innerHTML = `
-              <td class="line-num old-num empty-cell"></td>
-              <td class="line-content old-content empty-cell"></td>
-              <td class="split-divider"></td>
-              <td class="line-num new-num new-add">${add.newNum || ""}</td>
-              <td class="line-content new-content new-add">${escapeHtml(add.content)}</td>
-            `;
-          }
-          tbody.appendChild(tr);
-        }
-      } else if (line.type === "add") {
-        // Standalone add (not preceded by delete)
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td class="line-num old-num empty-cell"></td>
-          <td class="line-content old-content empty-cell"></td>
-          <td class="split-divider"></td>
-          <td class="line-num new-num new-add">${line.newNum || ""}</td>
-          <td class="line-content new-content new-add">${escapeHtml(line.content)}</td>
-        `;
-        tbody.appendChild(tr);
-        i++;
-      } else {
-        i++;
-      }
-    }
-  }
-
-  // --- Hunk Rendering: Unified View ---
-
-  function renderHunkUnified(hunk, tbody) {
-    // Hunk header row
-    const headerRow = document.createElement("tr");
-    headerRow.className = "hunk-header";
-    const headerCell = document.createElement("td");
-    headerCell.colSpan = 3;
-    headerCell.textContent = hunk.header;
-    headerRow.appendChild(headerCell);
-    tbody.appendChild(headerRow);
-
-    for (const line of hunk.lines) {
-      const tr = document.createElement("tr");
-
-      if (line.type === "context") {
-        tr.className = "line-context";
-        tr.innerHTML = `
-          <td class="line-num">${line.oldNum || ""}</td>
-          <td class="line-num">${line.newNum || ""}</td>
-          <td class="line-content">${escapeHtml(line.content)}</td>
-        `;
-      } else if (line.type === "add") {
-        tr.className = "line-add";
-        tr.innerHTML = `
-          <td class="line-num"></td>
-          <td class="line-num">${line.newNum || ""}</td>
-          <td class="line-content">${escapeHtml(line.content)}</td>
-        `;
-      } else if (line.type === "delete") {
-        tr.className = "line-delete";
-        tr.innerHTML = `
-          <td class="line-num">${line.oldNum || ""}</td>
-          <td class="line-num"></td>
-          <td class="line-content">${escapeHtml(line.content)}</td>
-        `;
-      }
-
-      tbody.appendChild(tr);
-    }
-  }
-
-  // --- Interactions ---
-
-  function toggleViewMode(mode) {
-    if (mode === viewMode) return;
-    viewMode = mode;
-
-    btnSplit.classList.toggle("active", mode === "split");
-    btnUnified.classList.toggle("active", mode === "unified");
-
-    // Re-render diffs only (keep file tree as-is)
-    renderDiffContent(currentFiles);
-  }
-
-  function scrollToFile(filename) {
-    const id = `file-${cssId(filename)}`;
-    const el = document.getElementById(id);
-    if (el) {
-      // Ensure the section is expanded
-      el.classList.remove("collapsed");
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }
-
-  // --- Helpers ---
-
-  function adjustSplitTableWidths() {
-    const tables = diffContent.querySelectorAll(".diff-table.split");
-    for (const table of tables) {
-      // Reset any previous adjustment
-      table.style.minWidth = "";
-
-      // Measure the widest content on each side using a temporary
-      // off-screen element to get the natural (unwrapped) width.
-      const probe = document.createElement("span");
-      probe.style.cssText =
-        "position:absolute;visibility:hidden;white-space:pre;" +
-        "font-family:var(--font-mono);font-size:var(--font-size);padding:0 10px";
-      document.body.appendChild(probe);
-
-      let maxWidth = 0;
-      const cells = table.querySelectorAll(".line-content");
-      for (const cell of cells) {
-        if (cell.classList.contains("empty-cell")) continue;
-        probe.textContent = cell.textContent;
-        if (probe.offsetWidth > maxWidth) {
-          maxWidth = probe.offsetWidth;
-        }
-      }
-      document.body.removeChild(probe);
-
-      // Each side needs: lineNum (50px) + content (maxWidth)
-      // Total: 2 * (50 + maxWidth) + 1px divider
-      const needed = 2 * (50 + maxWidth) + 1;
-      const container = table.closest(".file-body");
-      if (container && needed > container.clientWidth) {
-        table.style.minWidth = needed + "px";
-      }
-    }
-  }
-
-  function escapeHtml(str) {
-    if (!str) return "";
-    return str
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function cssId(path) {
-    return path.replace(/[^a-zA-Z0-9_-]/g, "-");
-  }
-
-  // --- Event Listeners ---
-
-  btnSplit.addEventListener("click", () => toggleViewMode("split"));
-  btnUnified.addEventListener("click", () => toggleViewMode("unified"));
-
-  // --- Init ---
   showView("landing");
 })();

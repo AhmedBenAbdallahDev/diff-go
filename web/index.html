@@ -39,22 +39,46 @@
     </div>
   </div>
 
-  <!-- Text Input View -->
+  <!-- Text Input View with Real-time Diff -->
   <div id="text-input-view" class="input-view" hidden>
     <header class="input-header">
       <button class="back-btn" id="text-back">← Back</button>
-      <h2>Text Compare</h2>
-      <button class="compare-btn" id="text-compare">Compare</button>
+      <h2>Text Compare <span class="realtime-badge">Real-time</span></h2>
+      <div class="header-actions">
+        <button class="clear-btn" id="text-clear">Clear All</button>
+      </div>
     </header>
-    <div class="text-input-container">
-      <div class="text-panel">
-        <label>Left (Original)</label>
-        <textarea id="text-left" placeholder="Paste your original text here..."></textarea>
+    <div class="diff-live-container">
+      <!-- Left Panel: Input + Diff Overlay -->
+      <div class="diff-live-panel">
+        <div class="panel-header">
+          <span class="panel-label">Original</span>
+          <span class="line-count" id="left-line-count">0 lines</span>
+        </div>
+        <div class="editor-wrapper">
+          <textarea id="text-left" class="diff-textarea" placeholder="Paste or type your original text here..." spellcheck="false"></textarea>
+          <div id="diff-left-overlay" class="diff-overlay"></div>
+        </div>
       </div>
-      <div class="text-panel">
-        <label>Right (Modified)</label>
-        <textarea id="text-right" placeholder="Paste your modified text here..."></textarea>
+      
+      <!-- Right Panel: Input + Diff Overlay -->
+      <div class="diff-live-panel">
+        <div class="panel-header">
+          <span class="panel-label">Modified</span>
+          <span class="line-count" id="right-line-count">0 lines</span>
+        </div>
+        <div class="editor-wrapper">
+          <textarea id="text-right" class="diff-textarea" placeholder="Paste or type your modified text here..." spellcheck="false"></textarea>
+          <div id="diff-right-overlay" class="diff-overlay"></div>
+        </div>
       </div>
+    </div>
+    
+    <!-- Diff Stats Bar -->
+    <div class="diff-stats-bar" id="diff-stats-bar">
+      <span class="stat additions" id="stat-additions">+0</span>
+      <span class="stat deletions" id="stat-deletions">−0</span>
+      <span class="stat unchanged" id="stat-unchanged">0 unchanged</span>
     </div>
   </div>
 
