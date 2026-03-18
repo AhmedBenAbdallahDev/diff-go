@@ -1,134 +1,128 @@
+// ghdiff displays git diffs in a GitHub-style web UI.
 package main
 
 import (
-	"encoding/json"
-	"log"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"os"
-	"path/filepath"
-	"sort"
+	"os/signal"
+	"strconv"
+	"syscall"
+
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/browser"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/cli"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/diff"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/git"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/server"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/web"
 )
 
+// version is set via -ldflags at build time.
+var version = "dev"
+
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	http.HandleFunc("/api/compare-dirs", handleCompareDirs)
-	http.HandleFunc("/api/read-file", handleReadFile)
-
-	fs := http.FileServer(http.Dir("./static"))
-	http.Handle("/", fs)
-
-	log.Printf("diff-ashref-tn listening on :%s", port)
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
-		log.Fatalf("server error: %v", err)
+	if err := run(); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
-// ── Directory comparison ────────────────────────────────────
-
-type FileEntry struct {
-	Name   string `json:"name"`
-	Size   int64  `json:"size"`
-	IsDir  bool   `json:"isDir"`
-	Status string `json:"status"`
-}
-
-func handleCompareDirs(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
-	}
-
-	var req struct {
-		Left  string `json:"left"`
-		Right string `json:"right"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Left == "" || req.Right == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "both left and right paths are required"})
-		return
-	}
-
-	leftMap, err := readDir(req.Left)
+func run() error {
+	cfg, err := cli.ParseArgs(os.Args[1:])
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "left: " + err.Error()})
-		return
-	}
-	rightMap, err := readDir(req.Right)
-	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": "right: " + err.Error()})
-		return
-	}
-
-	var files []FileEntry
-	seen := map[string]bool{}
-
-	for name, li := range leftMap {
-		seen[name] = true
-		if ri, ok := rightMap[name]; ok {
-			status := "same"
-			if li.Size() != ri.Size() || li.IsDir() != ri.IsDir() {
-				status = "modified"
-			}
-			files = append(files, FileEntry{Name: name, Size: li.Size(), IsDir: li.IsDir(), Status: status})
-		} else {
-			files = append(files, FileEntry{Name: name, Size: li.Size(), IsDir: li.IsDir(), Status: "only-left"})
+		if errors.Is(err, cli.ErrHelp) {
+			cli.PrintUsage(os.Stderr)
+			return nil
 		}
-	}
-	for name, ri := range rightMap {
-		if !seen[name] {
-			files = append(files, FileEntry{Name: name, Size: ri.Size(), IsDir: ri.IsDir(), Status: "only-right"})
+		if errors.Is(err, cli.ErrVersion) {
+			fmt.Println(version)
+			return nil
 		}
+		return err
 	}
 
-	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	json.NewEncoder(w).Encode(map[string]interface{}{"files": files})
-}
+	repo := git.NewRepo(".")
+	var stdinDiff *diff.Result
 
-func readDir(path string) (map[string]os.FileInfo, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, err
-	}
-	entries, err := os.ReadDir(abs)
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[string]os.FileInfo)
-	for _, e := range entries {
-		info, err := e.Info()
+	switch cfg.Mode {
+	case "stdin":
+		data, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			continue
+			return fmt.Errorf("reading stdin: %w", err)
 		}
-		m[e.Name()] = info
-	}
-	return m, nil
-}
+		result, err := diff.Parse(string(data))
+		if err != nil {
+			return fmt.Errorf("parsing diff from stdin: %w", err)
+		}
+		stdinDiff = result
 
-// ── File reading ────────────────────────────────────────────
+	case "merge-base":
+		mainBranch, err := repo.GetMainBranch()
+		if err != nil {
+			return fmt.Errorf("detecting main branch: %w", err)
+		}
+		base, err := repo.GetMergeBase("HEAD", mainBranch)
+		if err != nil {
+			return fmt.Errorf("computing merge-base: %w", err)
+		}
+		cfg.Base = base
 
-func handleReadFile(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
-		return
+	case "working":
+		cfg.Base = "HEAD"
+
+	case "commit", "compare":
+		// Base (and Target for compare) already set by CLI parser
 	}
 
-	var req struct {
-		Path string `json:"path"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Path == "" {
-		json.NewEncoder(w).Encode(map[string]string{"error": "path is required"})
-		return
-	}
-
-	data, err := os.ReadFile(req.Path)
+	// Listen on a port to get the actual address (handles port=0 auto-select)
+	addr := net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		return
+		return fmt.Errorf("listen %s: %w", addr, err)
 	}
-	json.NewEncoder(w).Encode(map[string]string{"content": string(data)})
+
+	// Extract the actual port (important when port=0).
+	// The type assertion is safe because net.Listen("tcp", ...) always returns *net.TCPAddr.
+	tcpAddr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return fmt.Errorf("unexpected listener address type: %T", ln.Addr())
+	}
+	actualPort := tcpAddr.Port
+	cfg.Port = actualPort
+	url := fmt.Sprintf("http://%s", net.JoinHostPort(cfg.Host, strconv.Itoa(actualPort)))
+
+	fmt.Printf("Listening on %s\n", url)
+	if cfg.Host != "localhost" && cfg.Host != "127.0.0.1" {
+		fmt.Fprintln(os.Stderr, "WARNING: ghdiff is not designed for public access. It exposes repository contents without authentication.")
+	}
+	fmt.Println("Press Ctrl+C to stop")
+
+	if !cfg.NoOpen {
+		if err := browser.Open(url); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not open browser: %v\n", err)
+		}
+	}
+
+	srv := server.New(cfg, repo, stdinDiff, web.Assets)
+	httpServer := &http.Server{Handler: srv.Handler()}
+
+	// Graceful shutdown on Ctrl+C
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		<-ctx.Done()
+		fmt.Println("\nShutting down...")
+		_ = httpServer.Close()
+	}()
+
+	if err := httpServer.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	return nil
 }

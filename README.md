@@ -1,56 +1,57 @@
 # diff-ashref-tn
 
-Real-time side-by-side text/code diff viewer.  
-Paste two texts and see differences highlighted instantly.
+> 🔀 Based on [ghdiff](https://github.com/johanlundberg/ghdiff) by Johan Lundberg
 
-## Stack
+A web-based diff viewer with GitHub-style UI. Compare text, code, or files side-by-side with syntax highlighting.
 
-- **Backend:** Go 1.22 (static file server)
-- **Frontend:** Vanilla HTML/CSS/JS + [diff-match-patch](https://github.com/google/diff-match-patch)
+![screenshot](screenshot.png)
 
-## Run locally (Go)
+## Credits
 
-```bash
-go run main.go
-# open http://localhost:8080
+This project is built upon the excellent [ghdiff](https://github.com/johanlundberg/ghdiff) by Johan Lundberg. Original features include:
+
+- Split and unified diff views with syntax highlighting
+- File tree sidebar with collapsible folders
+- Dark GitHub-style theme
+- Zero external Go dependencies
+- Single binary with embedded frontend
+
+## License
+
+See [LICENSE](LICENSE) file. Original work by Johan Lundberg.
+
+---
+
+## Development
+
+```sh
+make check    # lint + test (run before submitting)
+make test     # go test ./...
+make lint     # golangci-lint run ./...
+make fmt      # goimports via golangci-lint
+make build    # go build -o ghdiff .
 ```
 
-## Run with Docker (recommended)
+Run a single test:
 
-```bash
-docker compose up -d
-# open http://localhost:8080
+```sh
+go test ./internal/diff/ -run TestParse
+go test ./internal/server/ -run TestAPIDiff
+go test -run TestIntegrationGitMode
 ```
 
-To stop:
-```bash
-docker compose down
+Integration tests build the binary and start it as a subprocess. They are
+skipped with `go test -short ./...`.
+
+### Project structure
+
 ```
-
-To rebuild after changes:
-```bash
-docker compose up -d --build
+main.go              Entry point, server startup, signal handling
+internal/cli/        CLI argument parsing, Config struct
+internal/diff/       Unified diff parser
+internal/git/        Git subprocess wrapper
+internal/server/     HTTP server, API endpoints, auth
+internal/browser/    Cross-platform browser opener
+web/                 Embedded frontend (HTML, CSS, JS)
+web/vendor/          Vendored highlight.js
 ```
-
-## Deploy to VPS with Docker
-
-```bash
-# 1. SSH into your VPS and clone the repo
-git clone https://github.com/AhmedBenAbdallahDev/diff-ashref-tn.git
-cd diff-ashref-tn
-
-# 2. Build and start
-docker compose up -d --build
-
-# 3. Check it's running
-docker ps
-curl http://localhost:8080
-```
-
-That's it. Docker handles everything — no Go install needed on the server.
-
-## Environment Variables
-
-| Variable | Default | Description        |
-|----------|---------|--------------------|
-| `PORT`   | `8080`  | HTTP port to listen on |

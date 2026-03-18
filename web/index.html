@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ghdiff</title>
+  <link rel="stylesheet" href="vendor/github-dark.min.css">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top-bar">
+    <div class="top-bar-left">
+      <select id="base-picker" class="ref-picker" aria-label="Select base ref">
+        <option value="">Loading...</option>
+      </select>
+      <span class="ref-separator">..</span>
+      <select id="target-picker" class="ref-picker" aria-label="Select target ref">
+        <option value="">Loading...</option>
+      </select>
+    </div>
+    <div class="top-bar-right">
+      <div class="view-toggle" role="group" aria-label="Diff view mode">
+        <button id="btn-split" class="toggle-btn active" type="button">Split</button>
+        <button id="btn-unified" class="toggle-btn" type="button">Unified</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside id="file-tree" class="file-tree" aria-label="File tree">
+      <div class="file-tree-header">Files</div>
+      <nav id="file-tree-content"></nav>
+    </aside>
+    <section id="diff-content" class="diff-content" aria-label="Diff content"></section>
+  </main>
+
+  <script>window.__TOKEN__="{{TOKEN}}";</script>
+  <script src="vendor/highlight.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
