@@ -20,8 +20,6 @@
   const diffMain = document.querySelector(".diff-main");
   const folderModal = document.getElementById("folder-modal");
 
-  const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
-
   // === Mode Switching ===
   let currentMode = "text";
 
@@ -30,11 +28,9 @@
       const mode = btn.dataset.mode;
       currentMode = mode;
 
-      // Update button states
       document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
 
-      // Show/hide input bar
       if (mode === "text") {
         inputBar.hidden = true;
         fileInputs.hidden = true;
@@ -88,7 +84,6 @@
     }
   });
 
-  // Update file names on selection
   document.getElementById("file-left").addEventListener("change", function() {
     document.getElementById("file-left-name").textContent = this.files[0]?.name || "No file";
   });
@@ -97,64 +92,222 @@
   });
 
   // === Folder Comparison ===
-  document.getElementById("btn-compare-folders").addEventListener("click", async () => {
-    const leftPath = document.getElementById("folder-left").value.trim();
-    const rightPath = document.getElementById("folder-right").value.trim();
+  let leftFolderData = null;
+  let rightFolderData = null;
+  let folderCompareResult = null;
 
-    if (!leftPath || !rightPath) {
-      alert("Please enter both folder paths");
+  document.getElementById("folder-left").addEventListener("change", function() {
+    leftFolderData = processFolder(this.files);
+    document.getElementById("folder-left-name").textContent = leftFolderData.name || "No folder";
+  });
+
+  document.getElementById("folder-right").addEventListener("change", function() {
+    rightFolderData = processFolder(this.files);
+    document.getElementById("folder-right-name").textContent = rightFolderData.name || "No folder";
+  });
+
+  function processFolder(fileList) {
+    if (!fileList || fileList.length === 0) return null;
+    
+    const files = Array.from(fileList);
+    const rootPath = files[0].webkitRelativePath.split("/")[0];
+    
+    const entries = new Map();
+    
+    for (const file of files) {
+      const parts = file.webkitRelativePath.split("/");
+      if (parts.length < 2) continue;
+      
+      // Get immediate children only (1 level deep)
+      const childName = parts[1];
+      if (!childName) continue;
+      
+      if (!entries.has(childName)) {
+        const isDir = parts.length > 2;
+        entries.set(childName, {
+          name: childName,
+          isDir: isDir,
+          size: isDir ? 0 : file.size,
+          files: isDir ? [] : [file]
+        });
+      } else if (parts.length > 2) {
+        // It's inside a subdirectory, mark as dir
+        entries.get(childName).isDir = true;
+        entries.get(childName).files.push(file);
+      } else {
+        // Direct file, accumulate
+        entries.get(childName).files.push(file);
+        entries.get(childName).size += file.size;
+      }
+    }
+
+    return {
+      name: rootPath,
+      entries: entries
+    };
+  }
+
+  document.getElementById("btn-compare-folders").addEventListener("click", async () => {
+    if (!leftFolderData || !rightFolderData) {
+      alert("Please select both folders");
       return;
     }
 
-    try {
-      const resp = await fetch("/api/compare-folders", {
-        method: "POST",
-        headers: { ...authHeaders, "Content-Type": "application/json" },
-        body: JSON.stringify({ leftPath, rightPath })
-      });
-
-      if (!resp.ok) throw new Error(await resp.text());
-
-      const data = await resp.json();
-      showFolderResults(data);
-    } catch (e) {
-      alert("Error: " + e.message);
-    }
+    folderCompareResult = await compareFolders(leftFolderData, rightFolderData);
+    showFolderResults();
   });
 
-  function showFolderResults(data) {
-    document.getElementById("modal-stats").textContent = 
-      `${data.sameCount} same, ${data.diffCount} different, ${data.onlyLeft} only left, ${data.onlyRight} only right`;
+  async function hashFile(file) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch {
+      return null;
+    }
+  }
 
-    const tbody = document.getElementById("folder-results");
-    tbody.innerHTML = "";
+  async function compareFolders(left, right) {
+    const allNames = new Set([...left.entries.keys(), ...right.entries.keys()]);
+    const sortedNames = Array.from(allNames).sort();
 
-    const labels = {
-      same: "✓ Same",
-      different: "≠ Different", 
-      only_left: "← Left only",
-      only_right: "→ Right only"
+    const entries = [];
+    let sameCount = 0, diffCount = 0, onlyLeft = 0, onlyRight = 0;
+
+    for (const name of sortedNames) {
+      const leftEntry = left.entries.get(name);
+      const rightEntry = right.entries.get(name);
+
+      const entry = { name };
+
+      if (leftEntry && rightEntry) {
+        entry.isDir = leftEntry.isDir || rightEntry.isDir;
+        entry.leftSize = leftEntry.size;
+        entry.rightSize = rightEntry.size;
+
+        if (leftEntry.isDir !== rightEntry.isDir) {
+          entry.status = "different";
+          diffCount++;
+        } else if (leftEntry.isDir) {
+          // Both dirs - compare file counts (simplified)
+          entry.status = leftEntry.files.length === rightEntry.files.length ? "same" : "different";
+          if (entry.status === "same") sameCount++; else diffCount++;
+        } else {
+          // Both files - compare by hash
+          const leftHash = await hashFile(leftEntry.files[0]);
+          const rightHash = await hashFile(rightEntry.files[0]);
+          entry.status = leftHash === rightHash ? "same" : "different";
+          if (entry.status === "same") sameCount++; else diffCount++;
+        }
+      } else if (leftEntry) {
+        entry.isDir = leftEntry.isDir;
+        entry.leftSize = leftEntry.size;
+        entry.status = "only_left";
+        onlyLeft++;
+      } else {
+        entry.isDir = rightEntry.isDir;
+        entry.rightSize = rightEntry.size;
+        entry.status = "only_right";
+        onlyRight++;
+      }
+
+      entries.push(entry);
+    }
+
+    return {
+      leftName: left.name,
+      rightName: right.name,
+      entries,
+      sameCount,
+      diffCount,
+      onlyLeft,
+      onlyRight
     };
+  }
 
-    for (const entry of data.entries) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td class="status-${entry.status}">${labels[entry.status] || entry.status}</td>
-        <td>${escapeHtml(entry.name)}</td>
-        <td>${entry.isDir ? "📁 Folder" : "📄 File"}</td>
-        <td>${entry.isDir ? "-" : formatSize(entry.size)}</td>
-      `;
-      tbody.appendChild(tr);
+  function showFolderResults() {
+    if (!folderCompareResult) return;
+
+    const { leftName, rightName, entries, sameCount, diffCount, onlyLeft, onlyRight } = folderCompareResult;
+
+    // Update headers
+    document.getElementById("left-folder-header").textContent = leftName;
+    document.getElementById("right-folder-header").textContent = rightName;
+
+    // Update stats
+    document.getElementById("modal-stats").innerHTML = `
+      <span class="stat-same">✓ ${sameCount} same</span>
+      <span class="stat-diff">≠ ${diffCount} different</span>
+      <span class="stat-left">← ${onlyLeft} left only</span>
+      <span class="stat-right">→ ${onlyRight} right only</span>
+    `;
+
+    // Get filter values
+    const nameFilter = document.getElementById("folder-filter").value.toLowerCase();
+    const statusFilter = document.getElementById("folder-status-filter").value;
+
+    // Filter entries
+    const filtered = entries.filter(e => {
+      if (nameFilter && !e.name.toLowerCase().includes(nameFilter)) return false;
+      if (statusFilter !== "all" && e.status !== statusFilter) return false;
+      return true;
+    });
+
+    // Render trees
+    const leftTree = document.getElementById("left-folder-tree");
+    const rightTree = document.getElementById("right-folder-tree");
+    
+    leftTree.innerHTML = "";
+    rightTree.innerHTML = "";
+
+    for (const entry of filtered) {
+      const leftEl = createEntryEl(entry, "left");
+      const rightEl = createEntryEl(entry, "right");
+      leftTree.appendChild(leftEl);
+      rightTree.appendChild(rightEl);
     }
 
     folderModal.classList.add("visible");
   }
 
+  function createEntryEl(entry, side) {
+    const div = document.createElement("div");
+    div.className = `folder-entry status-${entry.status}`;
+
+    const isMissing = (side === "left" && entry.status === "only_right") ||
+                      (side === "right" && entry.status === "only_left");
+
+    if (isMissing) {
+      div.classList.add("status-missing");
+    }
+
+    const icon = entry.isDir ? "📁" : "📄";
+    const size = isMissing ? "-" : formatSize(side === "left" ? entry.leftSize : entry.rightSize);
+    
+    let badge = "";
+    if (entry.status === "same") badge = `<span class="status-badge same">✓</span>`;
+    else if (entry.status === "different") badge = `<span class="status-badge different">≠</span>`;
+    else if (isMissing) badge = `<span class="status-badge only">—</span>`;
+
+    div.innerHTML = `
+      <span class="icon">${icon}</span>
+      <span class="name">${escapeHtml(entry.name)}</span>
+      <span class="size">${size}</span>
+      ${badge}
+    `;
+
+    return div;
+  }
+
+  // Filter handlers
+  document.getElementById("folder-filter").addEventListener("input", showFolderResults);
+  document.getElementById("folder-status-filter").addEventListener("change", showFolderResults);
+
   document.getElementById("modal-close").addEventListener("click", () => {
     folderModal.classList.remove("visible");
   });
 
-  // Close modal on outside click
   folderModal.addEventListener("click", (e) => {
     if (e.target === folderModal) {
       folderModal.classList.remove("visible");
@@ -237,38 +390,34 @@
     const leftLines = leftText ? leftText.split("\n") : [];
     const rightLines = rightText ? rightText.split("\n") : [];
 
-    // Update line counts
     leftStats.textContent = `${leftLines.length} line${leftLines.length !== 1 ? "s" : ""}`;
     rightStats.textContent = `${rightLines.length} line${rightLines.length !== 1 ? "s" : ""}`;
 
-    // Update line numbers
     lineNumsLeft.innerHTML = leftLines.map((_, i) => `<div>${i + 1}</div>`).join("");
     lineNumsRight.innerHTML = rightLines.map((_, i) => `<div>${i + 1}</div>`).join("");
 
-    // Compute diff
     const diff = computeDiff(leftLines, rightLines);
 
     let leftHtml = "", rightHtml = "";
     let adds = 0, dels = 0, same = 0;
 
-    let i = 0;
-    while (i < diff.length) {
-      const item = diff[i];
+    let idx = 0;
+    while (idx < diff.length) {
+      const item = diff[idx];
 
       if (item.type === "same") {
         leftHtml += `<span class="line">${escapeHtml(item.text)}\n</span>`;
         rightHtml += `<span class="line">${escapeHtml(item.text)}\n</span>`;
         same++;
-        i++;
+        idx++;
       } else if (item.type === "del") {
-        // Collect consecutive dels then adds
         const delItems = [];
-        while (i < diff.length && diff[i].type === "del") {
-          delItems.push(diff[i++]);
+        while (idx < diff.length && diff[idx].type === "del") {
+          delItems.push(diff[idx++]);
         }
         const addItems = [];
-        while (i < diff.length && diff[i].type === "add") {
-          addItems.push(diff[i++]);
+        while (idx < diff.length && diff[idx].type === "add") {
+          addItems.push(diff[idx++]);
         }
 
         const maxLen = Math.max(delItems.length, addItems.length);
@@ -295,7 +444,7 @@
         leftHtml += `<span class="line">\n</span>`;
         rightHtml += `<span class="line line-add">${escapeHtml(item.text)}\n</span>`;
         adds++;
-        i++;
+        idx++;
       }
     }
 
@@ -327,6 +476,7 @@
   }
 
   function formatSize(bytes) {
+    if (bytes == null || isNaN(bytes)) return "-";
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / 1048576).toFixed(1) + " MB";

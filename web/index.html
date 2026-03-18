@@ -39,11 +39,13 @@
     <div class="input-bar-content" id="folder-inputs" hidden>
       <div class="folder-picker">
         <label>Left Folder:</label>
-        <input type="text" id="folder-left" placeholder="C:\path\to\folder">
+        <input type="file" id="folder-left" webkitdirectory directory multiple>
+        <span class="folder-name" id="folder-left-name">No folder selected</span>
       </div>
       <div class="folder-picker">
         <label>Right Folder:</label>
-        <input type="text" id="folder-right" placeholder="C:\path\to\folder">
+        <input type="file" id="folder-right" webkitdirectory directory multiple>
+        <span class="folder-name" id="folder-right-name">No folder selected</span>
       </div>
       <button class="load-btn" id="btn-compare-folders">Compare</button>
     </div>
@@ -94,19 +96,33 @@
 
   <!-- Folder Results Modal -->
   <div id="folder-modal" class="modal">
-    <div class="modal-content">
+    <div class="modal-content modal-wide">
       <div class="modal-header">
         <h2>Folder Comparison</h2>
+        <div class="modal-filter">
+          <input type="text" id="folder-filter" placeholder="Filter by name...">
+          <select id="folder-status-filter">
+            <option value="all">All</option>
+            <option value="same">✓ Same</option>
+            <option value="different">≠ Different</option>
+            <option value="only_left">← Left only</option>
+            <option value="only_right">→ Right only</option>
+          </select>
+        </div>
         <button class="modal-close" id="modal-close">×</button>
       </div>
       <div class="modal-stats" id="modal-stats"></div>
       <div class="modal-body">
-        <table class="folder-table">
-          <thead>
-            <tr><th>Status</th><th>Name</th><th>Type</th><th>Size</th></tr>
-          </thead>
-          <tbody id="folder-results"></tbody>
-        </table>
+        <div class="folder-compare-view">
+          <div class="folder-tree-panel">
+            <div class="folder-tree-header" id="left-folder-header">Left Folder</div>
+            <div class="folder-tree" id="left-folder-tree"></div>
+          </div>
+          <div class="folder-tree-panel">
+            <div class="folder-tree-header" id="right-folder-header">Right Folder</div>
+            <div class="folder-tree" id="right-folder-tree"></div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

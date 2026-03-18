@@ -376,17 +376,50 @@ html, body {
   flex-direction: column;
 }
 
+.modal-content.modal-wide {
+  max-width: 1200px;
+}
+
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
 .modal-header h2 {
   font-size: 16px;
   font-weight: 600;
+}
+
+.modal-filter {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+  max-width: 400px;
+}
+
+.modal-filter input,
+.modal-filter select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.modal-filter input {
+  flex: 1;
+}
+
+.modal-filter input:focus,
+.modal-filter select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 .modal-close {
@@ -408,7 +441,15 @@ html, body {
   font-size: 13px;
   color: var(--text-dim);
   background: var(--bg);
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
 }
+
+.modal-stats .stat-same { color: var(--green); }
+.modal-stats .stat-diff { color: #f0883e; }
+.modal-stats .stat-left { color: var(--red); }
+.modal-stats .stat-right { color: var(--accent); }
 
 .modal-body {
   flex: 1;
@@ -416,32 +457,120 @@ html, body {
   padding: 0;
 }
 
-.folder-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
+/* Folder Compare View - Side by Side Trees */
+.folder-compare-view {
+  display: flex;
+  height: 100%;
+  min-height: 400px;
 }
 
-.folder-table th,
-.folder-table td {
-  text-align: left;
+.folder-tree-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.folder-tree-panel:last-child {
+  border-right: none;
+}
+
+.folder-tree-header {
   padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-}
-
-.folder-table th {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
   background: var(--bg);
+  border-bottom: 1px solid var(--border);
   color: var(--text-dim);
-  font-weight: 500;
-  position: sticky;
-  top: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.folder-table tr:hover td {
+.folder-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.folder-entry {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  gap: 8px;
+  cursor: default;
+  border-left: 3px solid transparent;
+}
+
+.folder-entry:hover {
   background: rgba(255,255,255,0.02);
 }
 
-.folder-table .status-same { color: var(--green); }
-.folder-table .status-different { color: #f0883e; }
-.folder-table .status-only_left { color: var(--red); }
-.folder-table .status-only_right { color: var(--accent); }
+.folder-entry.status-same {
+  border-left-color: var(--green);
+}
+
+.folder-entry.status-different {
+  border-left-color: #f0883e;
+  background: rgba(240, 136, 62, 0.05);
+}
+
+.folder-entry.status-only_left {
+  border-left-color: var(--red);
+  background: rgba(248, 81, 73, 0.05);
+}
+
+.folder-entry.status-only_right {
+  border-left-color: var(--accent);
+  background: rgba(88, 166, 255, 0.05);
+}
+
+.folder-entry.status-missing {
+  opacity: 0.3;
+  font-style: italic;
+}
+
+.folder-entry .icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.folder-entry .name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.folder-entry .size {
+  color: var(--text-muted);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.folder-entry .status-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.folder-entry .status-badge.same { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+.folder-entry .status-badge.different { background: rgba(240, 136, 62, 0.2); color: #f0883e; }
+.folder-entry .status-badge.only { background: rgba(88, 166, 255, 0.2); color: var(--accent); }
+
+.folder-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
