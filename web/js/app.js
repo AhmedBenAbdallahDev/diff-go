@@ -147,11 +147,18 @@
       tbody.appendChild(tr);
     }
 
-    folderModal.hidden = false;
+    folderModal.classList.add("visible");
   }
 
   document.getElementById("modal-close").addEventListener("click", () => {
-    folderModal.hidden = true;
+    folderModal.classList.remove("visible");
+  });
+
+  // Close modal on outside click
+  folderModal.addEventListener("click", (e) => {
+    if (e.target === folderModal) {
+      folderModal.classList.remove("visible");
+    }
   });
 
   // === Real-time Diff Engine ===
