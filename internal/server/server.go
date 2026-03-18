@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/cli"
 	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/diff"
+	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/folder"
 	"github.com/AhmedBenAbdallahDev/diff-ashref-tn/internal/git"
 )
 
@@ -56,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/diff", s.requireToken(s.handleDiff))
 	s.mux.HandleFunc("GET /api/commits", s.requireToken(s.handleCommits))
+	s.mux.HandleFunc("POST /api/compare-text", s.requireToken(s.handleCompareText))
+	s.mux.HandleFunc("POST /api/compare-files", s.requireToken(s.handleCompareFiles))
+	s.mux.HandleFunc("POST /api/compare-folders", s.requireToken(s.handleCompareFolders))
 	s.mux.HandleFunc("GET /{$}", s.handleIndex)
 	s.mux.Handle("GET /", http.FileServerFS(s.assets))
 }
@@ -155,4 +160,154 @@ func writeJSON(w http.ResponseWriter, v any) {
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// --- New API Handlers for Web Mode ---
+
+// CompareTextRequest is the JSON body for text comparison.
+type CompareTextRequest struct {
+	Left     string `json:"left"`
+	Right    string `json:"right"`
+	LeftName  string `json:"leftName"`
+	RightName string `json:"rightName"`
+}
+
+func (s *Server) handleCompareText(w http.ResponseWriter, r *http.Request) {
+	var req CompareTextRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Default names if not provided
+	leftName := req.LeftName
+	if leftName == "" {
+		leftName = "left"
+	}
+	rightName := req.RightName
+	if rightName == "" {
+		rightName = "right"
+	}
+
+	result := diff.CompareTextsAsResult(req.Left, req.Right, leftName, rightName)
+	writeJSON(w, result)
+}
+
+func (s *Server) handleCompareFiles(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form (max 32MB)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "Failed to parse form: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	leftFile, leftHeader, err := r.FormFile("left")
+	if err != nil {
+		http.Error(w, "Missing left file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer leftFile.Close()
+
+	rightFile, rightHeader, err := r.FormFile("right")
+	if err != nil {
+		http.Error(w, "Missing right file: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	defer rightFile.Close()
+
+	// Read file contents
+	leftContent, err := io.ReadAll(leftFile)
+	if err != nil {
+		http.Error(w, "Failed to read left file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rightContent, err := io.ReadAll(rightFile)
+	if err != nil {
+		http.Error(w, "Failed to read right file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Check if binary (contains null bytes)
+	leftBinary := isBinary(leftContent)
+	rightBinary := isBinary(rightContent)
+
+	if leftBinary || rightBinary {
+		// Binary comparison - just check if they're identical
+		result := &diff.Result{
+			Files: []diff.FileDiff{{
+				OldName:  leftHeader.Filename,
+				NewName:  rightHeader.Filename,
+				IsBinary: true,
+				Status:   binaryStatus(leftContent, rightContent),
+			}},
+		}
+		writeJSON(w, result)
+		return
+	}
+
+	// Text comparison
+	result := diff.CompareTextsAsResult(
+		string(leftContent),
+		string(rightContent),
+		leftHeader.Filename,
+		rightHeader.Filename,
+	)
+	writeJSON(w, result)
+}
+
+func isBinary(data []byte) bool {
+	// Check first 8000 bytes for null characters
+	checkLen := len(data)
+	if checkLen > 8000 {
+		checkLen = 8000
+	}
+	for i := 0; i < checkLen; i++ {
+		if data[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func binaryStatus(left, right []byte) string {
+	if len(left) == len(right) {
+		same := true
+		for i := range left {
+			if left[i] != right[i] {
+				same = false
+				break
+			}
+		}
+		if same {
+			return "unchanged"
+		}
+	}
+	return "modified"
+}
+
+// CompareFoldersRequest is the JSON body for folder comparison.
+type CompareFoldersRequest struct {
+	LeftPath  string `json:"leftPath"`
+	RightPath string `json:"rightPath"`
+}
+
+func (s *Server) handleCompareFolders(w http.ResponseWriter, r *http.Request) {
+	var req CompareFoldersRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.LeftPath == "" || req.RightPath == "" {
+		http.Error(w, "Both leftPath and rightPath are required", http.StatusBadRequest)
+		return
+	}
+
+	result, err := folder.CompareFolders(req.LeftPath, req.RightPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	writeJSON(w, result)
 }

@@ -1,4 +1,4 @@
-// ghdiff - Frontend Application
+// diff-ashref-tn - Frontend Application
 // Vanilla JS, no build step, no framework.
 
 (function () {
@@ -8,41 +8,259 @@
   let currentFiles = [];
   let viewMode = "split"; // "split" or "unified"
   let activeFile = null;
+  let currentMode = null; // "text", "file", "folder"
+
+  // --- Auth Token ---
+  const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
 
   // --- DOM References ---
-  const basePicker = document.getElementById("base-picker");
-  const targetPicker = document.getElementById("target-picker");
+  const landing = document.getElementById("landing");
+  const textInputView = document.getElementById("text-input-view");
+  const fileInputView = document.getElementById("file-input-view");
+  const folderInputView = document.getElementById("folder-input-view");
+  const diffView = document.getElementById("diff-view");
+  const folderResultView = document.getElementById("folder-result-view");
+
   const btnSplit = document.getElementById("btn-split");
   const btnUnified = document.getElementById("btn-unified");
   const fileTreeContent = document.getElementById("file-tree-content");
   const diffContent = document.getElementById("diff-content");
 
-  // --- Auth Token ---
-  const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
+  // --- View Management ---
 
-  // --- API Calls ---
-
-  async function fetchDiff(base, target) {
-    const params = new URLSearchParams();
-    if (base) params.set("base", base);
-    if (target) params.set("target", target);
-    const qs = params.toString();
-    const url = qs ? `/api/diff?${qs}` : "/api/diff";
-    const resp = await fetch(url, { headers: authHeaders });
-    if (!resp.ok) {
-      throw new Error(`Failed to fetch diff: ${resp.status} ${resp.statusText}`);
+  function showView(viewId) {
+    const views = [landing, textInputView, fileInputView, folderInputView, diffView, folderResultView];
+    for (const view of views) {
+      view.hidden = view.id !== viewId;
     }
-    return resp.json();
   }
 
-  async function fetchCommits() {
-    const resp = await fetch("/api/commits", { headers: authHeaders });
-    if (!resp.ok) {
-      throw new Error(
-        `Failed to fetch commits: ${resp.status} ${resp.statusText}`
-      );
+  function goToLanding() {
+    currentMode = null;
+    showView("landing");
+  }
+
+  // --- Mode Card Click Handlers ---
+
+  document.querySelectorAll(".mode-card").forEach(card => {
+    card.addEventListener("click", () => {
+      const mode = card.dataset.mode;
+      currentMode = mode;
+      if (mode === "text") {
+        showView("text-input-view");
+        document.getElementById("text-left").value = "";
+        document.getElementById("text-right").value = "";
+        document.getElementById("text-left").focus();
+      } else if (mode === "file") {
+        showView("file-input-view");
+        resetFileInputs();
+      } else if (mode === "folder") {
+        showView("folder-input-view");
+        document.getElementById("folder-left").value = "";
+        document.getElementById("folder-right").value = "";
+        document.getElementById("folder-left").focus();
+      }
+    });
+  });
+
+  // --- Back Buttons ---
+
+  document.getElementById("text-back").addEventListener("click", goToLanding);
+  document.getElementById("file-back").addEventListener("click", goToLanding);
+  document.getElementById("folder-back").addEventListener("click", goToLanding);
+  document.getElementById("diff-back").addEventListener("click", () => {
+    if (currentMode === "text") showView("text-input-view");
+    else if (currentMode === "file") showView("file-input-view");
+    else if (currentMode === "folder") showView("folder-input-view");
+    else goToLanding();
+  });
+  document.getElementById("folder-result-back").addEventListener("click", () => showView("folder-input-view"));
+
+  // --- Text Compare ---
+
+  document.getElementById("text-compare").addEventListener("click", async () => {
+    const left = document.getElementById("text-left").value;
+    const right = document.getElementById("text-right").value;
+
+    if (!left && !right) {
+      alert("Please enter some text to compare.");
+      return;
     }
-    return resp.json();
+
+    try {
+      const resp = await fetch("/api/compare-text", {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ left, right, leftName: "Original", rightName: "Modified" })
+      });
+
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+
+      const data = await resp.json();
+      currentFiles = data.files || [];
+      document.getElementById("diff-title").textContent = "Text Comparison";
+      showDiffResult();
+    } catch (err) {
+      alert("Error comparing text: " + err.message);
+    }
+  });
+
+  // --- File Compare ---
+
+  let leftFile = null;
+  let rightFile = null;
+
+  function resetFileInputs() {
+    leftFile = null;
+    rightFile = null;
+    document.getElementById("file-left").value = "";
+    document.getElementById("file-right").value = "";
+    document.getElementById("file-left-name").textContent = "";
+    document.getElementById("file-right-name").textContent = "";
+    document.querySelectorAll(".file-drop-zone").forEach(z => z.classList.remove("dragover"));
+  }
+
+  function setupDropZone(dropId, inputId, nameId, setFile) {
+    const drop = document.getElementById(dropId);
+    const input = document.getElementById(inputId);
+    const name = document.getElementById(nameId);
+
+    drop.addEventListener("click", () => input.click());
+
+    drop.addEventListener("dragover", e => {
+      e.preventDefault();
+      drop.classList.add("dragover");
+    });
+
+    drop.addEventListener("dragleave", () => {
+      drop.classList.remove("dragover");
+    });
+
+    drop.addEventListener("drop", e => {
+      e.preventDefault();
+      drop.classList.remove("dragover");
+      if (e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        setFile(file);
+        name.textContent = file.name;
+      }
+    });
+
+    input.addEventListener("change", () => {
+      if (input.files.length > 0) {
+        const file = input.files[0];
+        setFile(file);
+        name.textContent = file.name;
+      }
+    });
+  }
+
+  setupDropZone("drop-left", "file-left", "file-left-name", f => { leftFile = f; });
+  setupDropZone("drop-right", "file-right", "file-right-name", f => { rightFile = f; });
+
+  document.getElementById("file-compare").addEventListener("click", async () => {
+    if (!leftFile || !rightFile) {
+      alert("Please select both files to compare.");
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("left", leftFile);
+      formData.append("right", rightFile);
+
+      const resp = await fetch("/api/compare-files", {
+        method: "POST",
+        headers: authHeaders,
+        body: formData
+      });
+
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+
+      const data = await resp.json();
+      currentFiles = data.files || [];
+      document.getElementById("diff-title").textContent = `${leftFile.name} vs ${rightFile.name}`;
+      showDiffResult();
+    } catch (err) {
+      alert("Error comparing files: " + err.message);
+    }
+  });
+
+  // --- Folder Compare ---
+
+  document.getElementById("folder-compare").addEventListener("click", async () => {
+    const leftPath = document.getElementById("folder-left").value.trim();
+    const rightPath = document.getElementById("folder-right").value.trim();
+
+    if (!leftPath || !rightPath) {
+      alert("Please enter both folder paths.");
+      return;
+    }
+
+    try {
+      const resp = await fetch("/api/compare-folders", {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ leftPath, rightPath })
+      });
+
+      if (!resp.ok) {
+        throw new Error(await resp.text());
+      }
+
+      const data = await resp.json();
+      showFolderResult(data);
+    } catch (err) {
+      alert("Error comparing folders: " + err.message);
+    }
+  });
+
+  function showFolderResult(data) {
+    const stats = document.getElementById("folder-stats");
+    stats.textContent = `${data.sameCount} same, ${data.diffCount} different, ${data.onlyLeft} only left, ${data.onlyRight} only right`;
+
+    const tbody = document.getElementById("folder-result-body");
+    tbody.innerHTML = "";
+
+    for (const entry of data.entries) {
+      const tr = document.createElement("tr");
+
+      const statusLabels = {
+        same: "✓ Same",
+        different: "≠ Different",
+        only_left: "← Left only",
+        only_right: "→ Right only"
+      };
+
+      tr.innerHTML = `
+        <td class="status-${entry.status}">${statusLabels[entry.status] || entry.status}</td>
+        <td class="name-cell">${escapeHtml(entry.name)}</td>
+        <td class="type-cell">${entry.isDir ? "📁 Folder" : "📄 File"}</td>
+        <td class="size-cell">${entry.isDir ? "-" : formatSize(entry.size)}</td>
+      `;
+
+      tbody.appendChild(tr);
+    }
+
+    showView("folder-result-view");
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+
+  // --- Diff Result Display ---
+
+  function showDiffResult() {
+    showView("diff-view");
+    renderFileTree(currentFiles);
+    renderDiffContent(currentFiles);
   }
 
   // --- File Tree ---
@@ -78,7 +296,7 @@
     fileTreeContent.innerHTML = "";
     if (!files || files.length === 0) {
       fileTreeContent.innerHTML =
-        '<div class="loading">No files changed</div>';
+        '<div class="loading">No differences found</div>';
       return;
     }
     const tree = buildFileTree(files);
@@ -137,6 +355,7 @@
         modified: "M",
         deleted: "\u2212",
         renamed: "R",
+        unchanged: "=",
       }[file.status] || "?";
 
       el.innerHTML = `
@@ -166,6 +385,7 @@
   function renderDiffContent(files) {
     diffContent.innerHTML = "";
     if (!files || files.length === 0) {
+      diffContent.innerHTML = '<div class="loading">No differences found - files are identical!</div>';
       return;
     }
     const fragment = document.createDocumentFragment();
@@ -232,7 +452,12 @@
     body.className = "file-body";
 
     if (file.isBinary) {
-      body.innerHTML = '<div class="binary-notice">Binary file not shown</div>';
+      const binaryText = file.status === "unchanged" 
+        ? "Binary files are identical"
+        : "Binary files differ";
+      body.innerHTML = `<div class="binary-notice">${binaryText}</div>`;
+    } else if (file.status === "unchanged") {
+      body.innerHTML = '<div class="binary-notice">Files are identical</div>';
     } else if (file.hunks && file.hunks.length > 0) {
       const table = document.createElement("table");
       table.className = `diff-table ${viewMode}`;
@@ -420,20 +645,6 @@
     renderDiffContent(currentFiles);
   }
 
-  async function loadDiff() {
-    showLoading();
-    try {
-      const base = basePicker.value || undefined;
-      const target = targetPicker.value || undefined;
-      const data = await fetchDiff(base, target);
-      currentFiles = data.files || [];
-      renderFileTree(currentFiles);
-      renderDiffContent(currentFiles);
-    } catch (err) {
-      showError(`Failed to load diff: ${err.message}`);
-    }
-  }
-
   function scrollToFile(filename) {
     const id = `file-${cssId(filename)}`;
     const el = document.getElementById(id);
@@ -494,98 +705,11 @@
     return path.replace(/[^a-zA-Z0-9_-]/g, "-");
   }
 
-  function showLoading() {
-    diffContent.innerHTML = '<div class="loading">Loading diff...</div>';
-    fileTreeContent.innerHTML = '<div class="loading">Loading...</div>';
-  }
-
-  function showError(message) {
-    diffContent.innerHTML = `<div class="error-message">${escapeHtml(message)}</div>`;
-  }
-
-  // --- Commit Picker ---
-
-  async function populateCommits() {
-    try {
-      const commits = await fetchCommits();
-
-      // --- Base picker ---
-      basePicker.innerHTML = "";
-      const baseDefault = document.createElement("option");
-      baseDefault.value = "";
-      baseDefault.textContent = "Merge base";
-      basePicker.appendChild(baseDefault);
-
-      // --- Target picker (target-picker) ---
-      targetPicker.innerHTML = "";
-      const targetDefault = document.createElement("option");
-      targetDefault.value = "";
-      targetDefault.textContent = "Working tree";
-      targetPicker.appendChild(targetDefault);
-
-      if (commits && commits.length > 0) {
-        for (const c of commits) {
-          const shortHash = c.hash.substring(0, 7);
-          const msg =
-            c.message.length > 60
-              ? c.message.substring(0, 57) + "..."
-              : c.message;
-          const label = `${shortHash} ${msg}`;
-
-          const baseOpt = document.createElement("option");
-          baseOpt.value = c.hash;
-          baseOpt.textContent = label;
-          basePicker.appendChild(baseOpt);
-
-          const targetOpt = document.createElement("option");
-          targetOpt.value = c.hash;
-          targetOpt.textContent = label;
-          targetPicker.appendChild(targetOpt);
-        }
-      }
-    } catch (err) {
-      basePicker.innerHTML = "";
-      const opt = document.createElement("option");
-      opt.value = "";
-      opt.textContent = "Failed to load commits";
-      basePicker.appendChild(opt);
-
-      targetPicker.innerHTML = "";
-      const topt = document.createElement("option");
-      topt.value = "";
-      topt.textContent = "Failed to load commits";
-      targetPicker.appendChild(topt);
-    }
-  }
-
   // --- Event Listeners ---
 
   btnSplit.addEventListener("click", () => toggleViewMode("split"));
   btnUnified.addEventListener("click", () => toggleViewMode("unified"));
 
-  for (const picker of [basePicker, targetPicker]) {
-    picker.addEventListener("change", loadDiff);
-  }
-
   // --- Init ---
-
-  async function init() {
-    showLoading();
-
-    // Fetch commits and diff in parallel
-    const [, diffResult] = await Promise.allSettled([
-      populateCommits(),
-      fetchDiff(),
-    ]);
-
-    if (diffResult.status === "fulfilled") {
-      currentFiles = diffResult.value.files || [];
-      renderFileTree(currentFiles);
-      renderDiffContent(currentFiles);
-    } else {
-      showError(`Failed to load diff: ${diffResult.reason?.message || "Unknown error"}`);
-    }
-  }
-
-  init();
+  showView("landing");
 })();
