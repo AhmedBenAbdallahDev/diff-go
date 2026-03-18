@@ -1,388 +1,108 @@
-// diff-ashref-tn - Frontend Application
-// Vanilla JS, no build step, no framework.
-
-(function () {
+// diff-ashref-tn - Simple Real-time Diff
+(function() {
   "use strict";
 
-  // --- Auth Token ---
-  const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
-
-  // --- DOM References ---
-  const landing = document.getElementById("landing");
-  const textInputView = document.getElementById("text-input-view");
-  const fileInputView = document.getElementById("file-input-view");
-  const folderInputView = document.getElementById("folder-input-view");
-  const diffView = document.getElementById("diff-view");
-  const folderResultView = document.getElementById("folder-result-view");
-
-  // Text diff elements
+  // === DOM Elements ===
   const textLeft = document.getElementById("text-left");
   const textRight = document.getElementById("text-right");
-  const diffLeftOverlay = document.getElementById("diff-left-overlay");
-  const diffRightOverlay = document.getElementById("diff-right-overlay");
-  const leftLineCount = document.getElementById("left-line-count");
-  const rightLineCount = document.getElementById("right-line-count");
-  const statAdditions = document.getElementById("stat-additions");
-  const statDeletions = document.getElementById("stat-deletions");
-  const statUnchanged = document.getElementById("stat-unchanged");
+  const overlayLeft = document.getElementById("overlay-left");
+  const overlayRight = document.getElementById("overlay-right");
+  const lineNumsLeft = document.getElementById("left-line-nums");
+  const lineNumsRight = document.getElementById("right-line-nums");
+  const leftStats = document.getElementById("left-stats");
+  const rightStats = document.getElementById("right-stats");
+  const statAdd = document.getElementById("stat-add");
+  const statDel = document.getElementById("stat-del");
+  const statSame = document.getElementById("stat-same");
+  const inputBar = document.getElementById("input-bar");
+  const fileInputs = document.getElementById("file-inputs");
+  const folderInputs = document.getElementById("folder-inputs");
+  const diffMain = document.querySelector(".diff-main");
+  const folderModal = document.getElementById("folder-modal");
 
-  // --- View Management ---
+  const authHeaders = { "X-Auth-Token": window.__TOKEN__ };
 
-  function showView(viewId) {
-    const views = [landing, textInputView, fileInputView, folderInputView, diffView, folderResultView];
-    for (const view of views) {
-      if (view) view.hidden = view.id !== viewId;
-    }
-  }
+  // === Mode Switching ===
+  let currentMode = "text";
 
-  function goToLanding() {
-    showView("landing");
-  }
+  document.querySelectorAll(".mode-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const mode = btn.dataset.mode;
+      currentMode = mode;
 
-  // --- Mode Card Click Handlers ---
+      // Update button states
+      document.querySelectorAll(".mode-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
 
-  document.querySelectorAll(".mode-card").forEach(card => {
-    card.addEventListener("click", () => {
-      const mode = card.dataset.mode;
+      // Show/hide input bar
       if (mode === "text") {
-        showView("text-input-view");
-        textLeft.value = "";
-        textRight.value = "";
-        updateDiff();
-        textLeft.focus();
+        inputBar.hidden = true;
+        fileInputs.hidden = true;
+        folderInputs.hidden = true;
+        diffMain.classList.remove("with-input-bar");
       } else if (mode === "file") {
-        showView("file-input-view");
-        resetFileInputs();
+        inputBar.hidden = false;
+        fileInputs.hidden = false;
+        folderInputs.hidden = true;
+        diffMain.classList.add("with-input-bar");
       } else if (mode === "folder") {
-        showView("folder-input-view");
-        document.getElementById("folder-left").value = "";
-        document.getElementById("folder-right").value = "";
-        document.getElementById("folder-left").focus();
+        inputBar.hidden = false;
+        fileInputs.hidden = true;
+        folderInputs.hidden = false;
+        diffMain.classList.add("with-input-bar");
       }
     });
   });
 
-  // --- Back Buttons ---
-
-  document.getElementById("text-back").addEventListener("click", goToLanding);
-  document.getElementById("file-back").addEventListener("click", goToLanding);
-  document.getElementById("folder-back").addEventListener("click", goToLanding);
-
-  // Clear button
-  document.getElementById("text-clear").addEventListener("click", () => {
+  // === Clear Button ===
+  document.getElementById("btn-clear").addEventListener("click", () => {
     textLeft.value = "";
     textRight.value = "";
     updateDiff();
   });
 
-  // ========================================
-  // REAL-TIME DIFF ENGINE
-  // ========================================
-
-  function splitLines(text) {
-    if (!text) return [];
-    return text.split('\n');
-  }
-
-  // Simple LCS-based diff
-  function computeDiff(oldLines, newLines) {
-    const m = oldLines.length;
-    const n = newLines.length;
-
-    // Build LCS table
-    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        if (oldLines[i - 1] === newLines[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-      }
-    }
-
-    // Backtrack to find diff
-    const result = [];
-    let i = m, j = n;
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
-        result.unshift({ type: 'same', oldIdx: i - 1, newIdx: j - 1, text: oldLines[i - 1] });
-        i--; j--;
-      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        result.unshift({ type: 'add', newIdx: j - 1, text: newLines[j - 1] });
-        j--;
-      } else {
-        result.unshift({ type: 'del', oldIdx: i - 1, text: oldLines[i - 1] });
-        i--;
-      }
-    }
-
-    return result;
-  }
-
-  // Character-level diff for modified lines
-  function charDiff(oldStr, newStr) {
-    const oldChars = oldStr.split('');
-    const newChars = newStr.split('');
-    const m = oldChars.length;
-    const n = newChars.length;
-
-    // Build LCS table
-    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    for (let i = 1; i <= m; i++) {
-      for (let j = 1; j <= n; j++) {
-        if (oldChars[i - 1] === newChars[j - 1]) {
-          dp[i][j] = dp[i - 1][j - 1] + 1;
-        } else {
-          dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-        }
-      }
-    }
-
-    // Backtrack
-    const oldResult = [];
-    const newResult = [];
-    let i = m, j = n;
-    
-    while (i > 0 || j > 0) {
-      if (i > 0 && j > 0 && oldChars[i - 1] === newChars[j - 1]) {
-        oldResult.unshift({ char: oldChars[i - 1], type: 'same' });
-        newResult.unshift({ char: newChars[j - 1], type: 'same' });
-        i--; j--;
-      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-        newResult.unshift({ char: newChars[j - 1], type: 'add' });
-        j--;
-      } else {
-        oldResult.unshift({ char: oldChars[i - 1], type: 'del' });
-        i--;
-      }
-    }
-
-    return { oldResult, newResult };
-  }
-
-  function escapeHtml(str) {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
-
-  function renderCharDiff(charDiffResult, type) {
-    let html = '';
-    for (const item of charDiffResult) {
-      const escaped = escapeHtml(item.char);
-      if (item.type === 'same') {
-        html += escaped;
-      } else if (item.type === type) {
-        html += `<span class="char-${type}">${escaped}</span>`;
-      }
-    }
-    return html;
-  }
-
-  function updateDiff() {
-    const leftText = textLeft.value;
-    const rightText = textRight.value;
-
-    const leftLines = splitLines(leftText);
-    const rightLines = splitLines(rightText);
-
-    // Update line counts
-    leftLineCount.textContent = `${leftLines.length} line${leftLines.length !== 1 ? 's' : ''}`;
-    rightLineCount.textContent = `${rightLines.length} line${rightLines.length !== 1 ? 's' : ''}`;
-
-    // Compute diff
-    const diff = computeDiff(leftLines, rightLines);
-
-    // Build overlay HTML for both sides
-    let leftHtml = '';
-    let rightHtml = '';
-    let additions = 0;
-    let deletions = 0;
-    let unchanged = 0;
-
-    // Group consecutive del/add for inline comparison
-    let i = 0;
-    while (i < diff.length) {
-      const item = diff[i];
-
-      if (item.type === 'same') {
-        leftHtml += `<span class="line line-same">${escapeHtml(item.text)}\n</span>`;
-        rightHtml += `<span class="line line-same">${escapeHtml(item.text)}\n</span>`;
-        unchanged++;
-        i++;
-      } else if (item.type === 'del') {
-        // Collect consecutive deletions
-        const dels = [];
-        while (i < diff.length && diff[i].type === 'del') {
-          dels.push(diff[i]);
-          i++;
-        }
-        // Collect consecutive additions
-        const adds = [];
-        while (i < diff.length && diff[i].type === 'add') {
-          adds.push(diff[i]);
-          i++;
-        }
-
-        // Pair them for character-level diff
-        const maxLen = Math.max(dels.length, adds.length);
-        for (let j = 0; j < maxLen; j++) {
-          const del = dels[j];
-          const add = adds[j];
-
-          if (del && add) {
-            // Both exist - do character diff
-            const { oldResult, newResult } = charDiff(del.text, add.text);
-            leftHtml += `<span class="line line-del">${renderCharDiff(oldResult, 'del')}\n</span>`;
-            rightHtml += `<span class="line line-add">${renderCharDiff(newResult, 'add')}\n</span>`;
-            deletions++;
-            additions++;
-          } else if (del) {
-            // Only deletion
-            leftHtml += `<span class="line line-del">${escapeHtml(del.text)}\n</span>`;
-            rightHtml += `<span class="line line-same">\n</span>`;
-            deletions++;
-          } else if (add) {
-            // Only addition
-            leftHtml += `<span class="line line-same">\n</span>`;
-            rightHtml += `<span class="line line-add">${escapeHtml(add.text)}\n</span>`;
-            additions++;
-          }
-        }
-      } else if (item.type === 'add') {
-        // Standalone add (not preceded by del)
-        leftHtml += `<span class="line line-same">\n</span>`;
-        rightHtml += `<span class="line line-add">${escapeHtml(item.text)}\n</span>`;
-        additions++;
-        i++;
-      }
-    }
-
-    // Update overlays
-    diffLeftOverlay.innerHTML = leftHtml;
-    diffRightOverlay.innerHTML = rightHtml;
-
-    // Update stats
-    statAdditions.textContent = `+${additions}`;
-    statDeletions.textContent = `−${deletions}`;
-    statUnchanged.textContent = `${unchanged} unchanged`;
-
-    // Sync scroll
-    syncScroll();
-  }
-
-  // Sync scroll between textareas and overlays
-  function syncScroll() {
-    const syncLeft = () => {
-      diffLeftOverlay.scrollTop = textLeft.scrollTop;
-      diffLeftOverlay.scrollLeft = textLeft.scrollLeft;
-    };
-    const syncRight = () => {
-      diffRightOverlay.scrollTop = textRight.scrollTop;
-      diffRightOverlay.scrollLeft = textRight.scrollLeft;
-    };
-    
-    textLeft.addEventListener('scroll', syncLeft);
-    textRight.addEventListener('scroll', syncRight);
-  }
-
-  // Debounce for performance
-  let diffTimeout = null;
-  function debouncedUpdateDiff() {
-    if (diffTimeout) clearTimeout(diffTimeout);
-    diffTimeout = setTimeout(updateDiff, 50);
-  }
-
-  // Listen for input
-  textLeft.addEventListener('input', debouncedUpdateDiff);
-  textRight.addEventListener('input', debouncedUpdateDiff);
-
-  // Initial sync scroll setup
-  syncScroll();
-
-  // ========================================
-  // FILE COMPARE
-  // ========================================
-
-  let leftFile = null;
-  let rightFile = null;
-
-  function resetFileInputs() {
-    leftFile = null;
-    rightFile = null;
-    document.getElementById("file-left").value = "";
-    document.getElementById("file-right").value = "";
-    document.getElementById("file-left-name").textContent = "";
-    document.getElementById("file-right-name").textContent = "";
-  }
-
-  function setupDropZone(dropId, inputId, nameId, setFile) {
-    const drop = document.getElementById(dropId);
-    const input = document.getElementById(inputId);
-    const name = document.getElementById(nameId);
-
-    drop.addEventListener("click", () => input.click());
-
-    drop.addEventListener("dragover", e => {
-      e.preventDefault();
-      drop.classList.add("dragover");
-    });
-
-    drop.addEventListener("dragleave", () => {
-      drop.classList.remove("dragover");
-    });
-
-    drop.addEventListener("drop", e => {
-      e.preventDefault();
-      drop.classList.remove("dragover");
-      if (e.dataTransfer.files.length > 0) {
-        const file = e.dataTransfer.files[0];
-        setFile(file);
-        name.textContent = file.name;
-      }
-    });
-
-    input.addEventListener("change", () => {
-      if (input.files.length > 0) {
-        const file = input.files[0];
-        setFile(file);
-        name.textContent = file.name;
-      }
-    });
-  }
-
-  setupDropZone("drop-left", "file-left", "file-left-name", f => { leftFile = f; });
-  setupDropZone("drop-right", "file-right", "file-right-name", f => { rightFile = f; });
-
-  document.getElementById("file-compare").addEventListener("click", async () => {
-    if (!leftFile || !rightFile) {
-      alert("Please select both files to compare.");
-      return;
-    }
-
-    // Read files and show in text compare view
-    const leftText = await leftFile.text();
-    const rightText = await rightFile.text();
-
-    textLeft.value = leftText;
-    textRight.value = rightText;
-    showView("text-input-view");
+  // === Swap Button ===
+  document.getElementById("btn-swap").addEventListener("click", () => {
+    const tmp = textLeft.value;
+    textLeft.value = textRight.value;
+    textRight.value = tmp;
     updateDiff();
   });
 
-  // ========================================
-  // FOLDER COMPARE
-  // ========================================
+  // === File Loading ===
+  document.getElementById("btn-load-files").addEventListener("click", async () => {
+    const fileL = document.getElementById("file-left").files[0];
+    const fileR = document.getElementById("file-right").files[0];
+    
+    if (!fileL || !fileR) {
+      alert("Please select both files");
+      return;
+    }
 
-  document.getElementById("folder-compare").addEventListener("click", async () => {
+    try {
+      textLeft.value = await fileL.text();
+      textRight.value = await fileR.text();
+      updateDiff();
+    } catch (e) {
+      alert("Error reading files: " + e.message);
+    }
+  });
+
+  // Update file names on selection
+  document.getElementById("file-left").addEventListener("change", function() {
+    document.getElementById("file-left-name").textContent = this.files[0]?.name || "No file";
+  });
+  document.getElementById("file-right").addEventListener("change", function() {
+    document.getElementById("file-right-name").textContent = this.files[0]?.name || "No file";
+  });
+
+  // === Folder Comparison ===
+  document.getElementById("btn-compare-folders").addEventListener("click", async () => {
     const leftPath = document.getElementById("folder-left").value.trim();
     const rightPath = document.getElementById("folder-right").value.trim();
 
     if (!leftPath || !rightPath) {
-      alert("Please enter both folder paths.");
+      alert("Please enter both folder paths");
       return;
     }
 
@@ -393,60 +113,228 @@
         body: JSON.stringify({ leftPath, rightPath })
       });
 
-      if (!resp.ok) {
-        throw new Error(await resp.text());
-      }
+      if (!resp.ok) throw new Error(await resp.text());
 
       const data = await resp.json();
-      showFolderResult(data);
-    } catch (err) {
-      alert("Error comparing folders: " + err.message);
+      showFolderResults(data);
+    } catch (e) {
+      alert("Error: " + e.message);
     }
   });
 
-  document.getElementById("folder-result-back").addEventListener("click", () => {
-    showView("folder-input-view");
-  });
+  function showFolderResults(data) {
+    document.getElementById("modal-stats").textContent = 
+      `${data.sameCount} same, ${data.diffCount} different, ${data.onlyLeft} only left, ${data.onlyRight} only right`;
 
-  function showFolderResult(data) {
-    const stats = document.getElementById("folder-stats");
-    stats.textContent = `${data.sameCount} same, ${data.diffCount} different, ${data.onlyLeft} only left, ${data.onlyRight} only right`;
-
-    const tbody = document.getElementById("folder-result-body");
+    const tbody = document.getElementById("folder-results");
     tbody.innerHTML = "";
+
+    const labels = {
+      same: "✓ Same",
+      different: "≠ Different", 
+      only_left: "← Left only",
+      only_right: "→ Right only"
+    };
 
     for (const entry of data.entries) {
       const tr = document.createElement("tr");
-
-      const statusLabels = {
-        same: "✓ Same",
-        different: "≠ Different",
-        only_left: "← Left only",
-        only_right: "→ Right only"
-      };
-
       tr.innerHTML = `
-        <td class="status-${entry.status}">${statusLabels[entry.status] || entry.status}</td>
-        <td class="name-cell">${escapeHtml(entry.name)}</td>
-        <td class="type-cell">${entry.isDir ? "📁 Folder" : "📄 File"}</td>
-        <td class="size-cell">${entry.isDir ? "-" : formatSize(entry.size)}</td>
+        <td class="status-${entry.status}">${labels[entry.status] || entry.status}</td>
+        <td>${escapeHtml(entry.name)}</td>
+        <td>${entry.isDir ? "📁 Folder" : "📄 File"}</td>
+        <td>${entry.isDir ? "-" : formatSize(entry.size)}</td>
       `;
-
       tbody.appendChild(tr);
     }
 
-    showView("folder-result-view");
+    folderModal.hidden = false;
+  }
+
+  document.getElementById("modal-close").addEventListener("click", () => {
+    folderModal.hidden = true;
+  });
+
+  // === Real-time Diff Engine ===
+
+  function computeDiff(oldLines, newLines) {
+    const m = oldLines.length, n = newLines.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = oldLines[i-1] === newLines[j-1] 
+          ? dp[i-1][j-1] + 1 
+          : Math.max(dp[i-1][j], dp[i][j-1]);
+      }
+    }
+
+    const result = [];
+    let i = m, j = n;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldLines[i-1] === newLines[j-1]) {
+        result.unshift({ type: "same", oldIdx: i-1, newIdx: j-1, text: oldLines[i-1] });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+        result.unshift({ type: "add", newIdx: j-1, text: newLines[j-1] });
+        j--;
+      } else {
+        result.unshift({ type: "del", oldIdx: i-1, text: oldLines[i-1] });
+        i--;
+      }
+    }
+    return result;
+  }
+
+  function charDiff(oldStr, newStr) {
+    const m = oldStr.length, n = newStr.length;
+    const dp = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        dp[i][j] = oldStr[i-1] === newStr[j-1] 
+          ? dp[i-1][j-1] + 1 
+          : Math.max(dp[i-1][j], dp[i][j-1]);
+      }
+    }
+
+    const oldRes = [], newRes = [];
+    let i = m, j = n;
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldStr[i-1] === newStr[j-1]) {
+        oldRes.unshift({ c: oldStr[i-1], t: "same" });
+        newRes.unshift({ c: newStr[j-1], t: "same" });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+        newRes.unshift({ c: newStr[j-1], t: "add" });
+        j--;
+      } else {
+        oldRes.unshift({ c: oldStr[i-1], t: "del" });
+        i--;
+      }
+    }
+    return { oldRes, newRes };
+  }
+
+  function renderChars(chars, type) {
+    let html = "";
+    for (const ch of chars) {
+      const esc = escapeHtml(ch.c);
+      html += ch.t === type ? `<span class="char-${type}">${esc}</span>` : esc;
+    }
+    return html;
+  }
+
+  function updateDiff() {
+    const leftText = textLeft.value;
+    const rightText = textRight.value;
+    const leftLines = leftText ? leftText.split("\n") : [];
+    const rightLines = rightText ? rightText.split("\n") : [];
+
+    // Update line counts
+    leftStats.textContent = `${leftLines.length} line${leftLines.length !== 1 ? "s" : ""}`;
+    rightStats.textContent = `${rightLines.length} line${rightLines.length !== 1 ? "s" : ""}`;
+
+    // Update line numbers
+    lineNumsLeft.innerHTML = leftLines.map((_, i) => `<div>${i + 1}</div>`).join("");
+    lineNumsRight.innerHTML = rightLines.map((_, i) => `<div>${i + 1}</div>`).join("");
+
+    // Compute diff
+    const diff = computeDiff(leftLines, rightLines);
+
+    let leftHtml = "", rightHtml = "";
+    let adds = 0, dels = 0, same = 0;
+
+    let i = 0;
+    while (i < diff.length) {
+      const item = diff[i];
+
+      if (item.type === "same") {
+        leftHtml += `<span class="line">${escapeHtml(item.text)}\n</span>`;
+        rightHtml += `<span class="line">${escapeHtml(item.text)}\n</span>`;
+        same++;
+        i++;
+      } else if (item.type === "del") {
+        // Collect consecutive dels then adds
+        const delItems = [];
+        while (i < diff.length && diff[i].type === "del") {
+          delItems.push(diff[i++]);
+        }
+        const addItems = [];
+        while (i < diff.length && diff[i].type === "add") {
+          addItems.push(diff[i++]);
+        }
+
+        const maxLen = Math.max(delItems.length, addItems.length);
+        for (let k = 0; k < maxLen; k++) {
+          const del = delItems[k];
+          const add = addItems[k];
+
+          if (del && add) {
+            const { oldRes, newRes } = charDiff(del.text, add.text);
+            leftHtml += `<span class="line line-del">${renderChars(oldRes, "del")}\n</span>`;
+            rightHtml += `<span class="line line-add">${renderChars(newRes, "add")}\n</span>`;
+            dels++; adds++;
+          } else if (del) {
+            leftHtml += `<span class="line line-del">${escapeHtml(del.text)}\n</span>`;
+            rightHtml += `<span class="line">\n</span>`;
+            dels++;
+          } else if (add) {
+            leftHtml += `<span class="line">\n</span>`;
+            rightHtml += `<span class="line line-add">${escapeHtml(add.text)}\n</span>`;
+            adds++;
+          }
+        }
+      } else if (item.type === "add") {
+        leftHtml += `<span class="line">\n</span>`;
+        rightHtml += `<span class="line line-add">${escapeHtml(item.text)}\n</span>`;
+        adds++;
+        i++;
+      }
+    }
+
+    overlayLeft.innerHTML = leftHtml;
+    overlayRight.innerHTML = rightHtml;
+
+    statAdd.textContent = `+${adds} added`;
+    statDel.textContent = `−${dels} removed`;
+    statSame.textContent = `${same} unchanged`;
+  }
+
+  // === Scroll Sync ===
+  function syncScroll(source, targets) {
+    source.addEventListener("scroll", () => {
+      for (const t of targets) {
+        t.scrollTop = source.scrollTop;
+        t.scrollLeft = source.scrollLeft;
+      }
+    });
+  }
+
+  syncScroll(textLeft, [overlayLeft, lineNumsLeft]);
+  syncScroll(textRight, [overlayRight, lineNumsRight]);
+
+  // === Helpers ===
+  function escapeHtml(str) {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   function formatSize(bytes) {
     if (bytes < 1024) return bytes + " B";
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / 1048576).toFixed(1) + " MB";
   }
 
-  // ========================================
-  // INIT
-  // ========================================
+  // === Input Events ===
+  let timeout;
+  function onInput() {
+    clearTimeout(timeout);
+    timeout = setTimeout(updateDiff, 30);
+  }
 
-  showView("landing");
+  textLeft.addEventListener("input", onInput);
+  textRight.addEventListener("input", onInput);
+
+  // Initial render
+  updateDiff();
 })();
