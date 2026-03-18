@@ -124,6 +124,10 @@ html, body {
   flex-wrap: wrap;
 }
 
+.input-bar-content[hidden] {
+  display: none;
+}
+
 .file-picker, .folder-picker {
   display: flex;
   align-items: center;
